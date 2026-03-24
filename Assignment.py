@@ -1,8 +1,8 @@
-import pandas as pd
-import nltk
-import re
-import torch
-import numpy as np
+import pandas as pd 
+import nltk 
+import re 
+import torch  
+import numpy as np 
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
@@ -18,16 +18,18 @@ from transformers import BertTokenizer, BertForSequenceClassification
 from torch.utils.data import Dataset, DataLoader
 from torch.optim import AdamW
 
-# ── Download required NLTK data ───────────────────────────
+# ══════════════════════════════════
+#   NLTK Setup
+# ══════════════════════════════════
 nltk.download("stopwords", quiet=True)
 nltk.download("wordnet",   quiet=True)
 nltk.download("omw-1.4",   quiet=True)
 nltk.download("punkt",     quiet=True)
 nltk.download("punkt_tab", quiet=True)
 
-# ══════════════════════════════════════════════════════════
-#   LOAD DATASET
-# ══════════════════════════════════════════════════════════
+# ══════════════════════════════════
+#   Load Dataset
+# ══════════════════════════════════
 hotel_data = pd.read_csv("tripadvisor_hotel_reviews.csv")
 
 print("=" * 50)
@@ -37,9 +39,9 @@ print("Total reviews :", len(hotel_data))
 print("Columns       :", hotel_data.columns.tolist())
 print()
 
-# ══════════════════════════════════════════════════════════
-#   CONVERT RATINGS TO SENTIMENT LABELS
-# ══════════════════════════════════════════════════════════
+# ══════════════════════════════════
+#   Convert Ratings to Sentiment
+# ══════════════════════════════════
 def convert_rating_to_sentiment(rating):
     if rating <= 2:
         return "negative"
@@ -48,20 +50,22 @@ def convert_rating_to_sentiment(rating):
     else:
         return "positive"
 
-hotel_data["Sentiment"] = hotel_data["Rating"].apply(convert_rating_to_sentiment)
+hotel_data["Sentiment"] = hotel_data["Rating"].apply(convert_rating_to_sentiment) #
 
 print("Sentiment distribution:")
 print(hotel_data["Sentiment"].value_counts())
 print()
 
 # ══════════════════════════════════════════════════════════
-#   PREPROCESSING
+#   Preprocessing Start
 # ══════════════════════════════════════════════════════════
 print("=" * 50)
 print("         PREPROCESSING")
 print("=" * 50)
 
-# ── Step 1: Text Cleaning ─────────────────────────────────
+# ══════════════════════════════════════════════════════════
+#   Step 1: Text Cleaning
+# ══════════════════════════════════════════════════════════
 def clean_review(review):
     review = review.lower()                     # make all letters lowercase
     review = re.sub(r'\d+', '', review)         # remove numbers
@@ -72,8 +76,10 @@ def clean_review(review):
 hotel_data["Clean_Review"] = hotel_data["Review"].apply(clean_review)
 print("✅ Step 1 done: Text cleaning")
 
-# ── Step 2: Tokenization ──────────────────────────────────
-# Split each review into a list of individual words
+# ══════════════════════════════════════════════════════════
+#   Step 2: Tokenization
+# ══════════════════════════════════════════════════════════
+# Split sentences into individual words
 def split_into_words(review):
     word_list = word_tokenize(review)
     return word_list
@@ -87,7 +93,9 @@ print("Original :", hotel_data["Review"][0][:80], "...")
 print("Tokens   :", hotel_data["Word_List"][0][:15], "...")
 print()
 
-# ── Step 3: Remove Stopwords ──────────────────────────────
+# ══════════════════════════════════════════════════════════
+#   Step 3: Remove Stopwords
+# ══════════════════════════════════════════════════════════
 # Remove common words like "the", "is", "at" that add no meaning
 common_words = set(stopwords.words("english"))
 
@@ -98,8 +106,10 @@ def remove_common_words(word_list):
 hotel_data["Word_List"] = hotel_data["Word_List"].apply(remove_common_words)
 print("✅ Step 3 done: Stopword removal")
 
-# ── Step 4: Lemmatization ─────────────────────────────────
-# Reduce words to their root form e.g. "rooms" → "room"
+# ══════════════════════════════════════════════════════════
+#   Step 4: Lemmatization
+# ══════════════════════════════════════════════════════════
+# Reduce words to their base form e.g. "rooms" → "room"
 word_reducer = WordNetLemmatizer()
 
 def reduce_to_root_word(word_list):
@@ -118,8 +128,10 @@ print("BEFORE:", hotel_data["Review"][0][:100], "...")
 print("AFTER :", hotel_data["Clean_Review"][0][:100], "...")
 print()
 
-# ── Step 5: TF-IDF Feature Extraction ────────────────────
-# Convert text into numbers so the model can understand it
+# ══════════════════════════════════════════════════════════
+#   Step 5: TF-IDF
+# ══════════════════════════════════════════════════════════
+# Convert text into numbers so model can read it
 tfidf_converter = TfidfVectorizer(max_features=5000)
 review_features = tfidf_converter.fit_transform(hotel_data["Clean_Review"])
 sentiment_labels = hotel_data["Sentiment"]
@@ -163,12 +175,12 @@ print()
 
 print("── Results ──────────────────────────────────────")
 print("Accuracy :", round(accuracy_score(test_labels, naive_bayes_predictions) * 100, 2), "%")
-print("Precision:", round(precision_score(test_labels, naive_bayes_predictions, average='weighted') * 100, 2), "%")
+print("Precision:", round(precision_score(test_labels, naive_bayes_predictions, average='weighted', zero_division=0) * 100, 2), "%")
 print("Recall   :", round(recall_score(test_labels, naive_bayes_predictions, average='weighted') * 100, 2), "%")
 print("F1 Score :", round(f1_score(test_labels, naive_bayes_predictions, average='weighted') * 100, 2), "%")
 print()
 print("── Detailed Report ──────────────────────────────")
-print(classification_report(test_labels, naive_bayes_predictions))
+print(classification_report(test_labels, naive_bayes_predictions, zero_division=0))
 
 print("── Sample Review Test ───────────────────────────")
 for review in sample_reviews:
@@ -200,7 +212,7 @@ print()
 
 print("── Results ──────────────────────────────────────")
 print("Accuracy :", round(accuracy_score(test_labels, svm_predictions) * 100, 2), "%")
-print("Precision:", round(precision_score(test_labels, svm_predictions, average='weighted') * 100, 2), "%")
+print("Precision:", round(precision_score(test_labels, svm_predictions, average='weighted', zero_division=0) * 100, 2), "%")
 print("Recall   :", round(recall_score(test_labels, svm_predictions, average='weighted') * 100, 2), "%")
 print("F1 Score :", round(f1_score(test_labels, svm_predictions, average='weighted') * 100, 2), "%")
 print()
@@ -356,7 +368,7 @@ bert_actual_words    = [sentiment_number_names[l] for l in bert_actual_labels]
 print()
 print("── Results ──────────────────────────────────────")
 print("Accuracy :", round(accuracy_score(bert_actual_words, bert_predicted_words) * 100, 2), "%")
-print("Precision:", round(precision_score(bert_actual_words, bert_predicted_words, average='weighted') * 100, 2), "%")
+print("Precision:", round(precision_score(bert_actual_words, bert_predicted_words, average='weighted', zero_division=0) * 100, 2), "%")
 print("Recall   :", round(recall_score(bert_actual_words, bert_predicted_words, average='weighted') * 100, 2), "%")
 print("F1 Score :", round(f1_score(bert_actual_words, bert_predicted_words, average='weighted') * 100, 2), "%")
 print()
