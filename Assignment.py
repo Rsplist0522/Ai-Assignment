@@ -65,7 +65,7 @@ print("=" * 50)
 def clean_review(review):
     review = review.lower()                     # make all letters lowercase
     review = re.sub(r'\d+', '', review)         # remove numbers
-    review = re.sub(r'[^a-z\s]', '', review)   # remove punctuation
+    review = re.sub(r'[^a-z\s]', '', review)    # remove punctuation
     review = review.strip()                     # remove extra spaces
     return review
 
