@@ -5,7 +5,7 @@ import torch
 import numpy as np
 import matplotlib
 import os
-import joblib  # For saving/loading scikit-learn models
+import joblib 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from nltk.corpus import stopwords
@@ -21,7 +21,7 @@ from torch.utils.data import Dataset, DataLoader
 from torch.optim import AdamW
 
 # ══════════════════════════════════
-#   NLTK Setup
+#   download NLTK
 # ══════════════════════════════════
 nltk.download("stopwords", quiet=True)
 nltk.download("wordnet", quiet=True)
@@ -41,13 +41,12 @@ if not os.path.exists(MODELS_DIR):
     os.makedirs(MODELS_DIR)
 
 # ══════════════════════════════════
-#   1. Data Loading with Error Handling
+#   1. Load Dataset
 # ══════════════════════════════════
 def load_data(file_path):
-    """Loads data from a CSV file with error handling."""
     try:
         data = pd.read_csv(file_path)
-        print("✅ Dataset loaded successfully.")
+        print("Dataset loaded successfully.")
         print("=" * 50)
         print("         DATASET INFO")
         print("=" * 50)
@@ -56,32 +55,28 @@ def load_data(file_path):
         print()
         return data
     except FileNotFoundError:
-        print(f"❌ Error: The file '{file_path}' was not found.")
-        print("Please make sure the dataset is in the same directory as the script.")
+        print(f" Error: The file '{file_path}' was not found.")
         return None
 
 # ══════════════════════════════════
-#   2. Unified Preprocessing Pipeline
+#   2. Preprocessing Functions
 # ══════════════════════════════════
-lemmatizer = WordNetLemmatizer()
-stop_words = set(stopwords.words("english"))
+lemmatizer = WordNetLemmatizer() #change word to base form
+stop_words = set(stopwords.words("english")) #remove not important words
 
 def preprocess_text(text):
-    """A single function to clean and preprocess text."""
     text = text.lower()
-    text = re.sub(r'\d+', '', text)
-    text = re.sub(r'[^a-z\s]', '', text)
-    text = text.strip()
-    tokens = word_tokenize(text)
-    tokens = [word for word in tokens if word not in stop_words]
+    text = re.sub(r'\d+', '', text) #remove numbers
+    text = re.sub(r'[^a-z\s]', '', text) #remove symbol
+    text = text.strip() #remove spaces
+    tokens = word_tokenize(text) #let text be words
+    tokens = [word for word in tokens if word not in stop_words] #remove stop words
     tokens = [lemmatizer.lemmatize(word) for word in tokens]
     return " ".join(tokens)
 
 def is_english(text):
-    """Basic validation to ensure the text is English (contains only ASCII)."""
     try:
         text.encode('ascii')
-        # Check if it has at least some English letters to avoid symbols-only input
         return bool(re.search('[a-zA-Z]', text))
     except UnicodeEncodeError:
         return False
@@ -100,16 +95,15 @@ def convert_sentiment_to_number(sentiment):
     return 2
 
 # ══════════════════════════════════
-#   Model Training & Evaluation Functions
+#   Model Training & Evaluation (scikit-learn models)
 # ══════════════════════════════════
 def train_evaluate_model(model, X_train, y_train, X_test, y_test, model_name):
-    """Trains and evaluates a scikit-learn model."""
     print("=" * 50)
     print(f"        TRAINING MODEL - {model_name.upper()}")
     print("=" * 50)
     
     model.fit(X_train, y_train)
-    print(f"✅ {model_name} trained!")
+    print(f" {model_name} trained!")
     
     predictions = model.predict(X_test)
     accuracy = accuracy_score(y_test, predictions)
@@ -121,7 +115,7 @@ def train_evaluate_model(model, X_train, y_train, X_test, y_test, model_name):
 
 # BERT Specific Components
 class HotelReviewDataset(Dataset):
-    def __init__(self, reviews, labels, tokenizer, max_length=64):
+    def __init__(self, reviews, labels, tokenizer, max_length=128):
         self.reviews = reviews
         self.labels = labels
         self.tokenizer = tokenizer
@@ -146,7 +140,6 @@ class HotelReviewDataset(Dataset):
         }
 
 def train_evaluate_bert(train_reviews, train_labels, test_reviews, test_labels, class_weights):
-    """Handles the training and evaluation of the DistilBERT model."""
     print("=" * 50)
     print("        TRAINING MODEL - BERT (DistilBERT)")
     print("=" * 50)
@@ -176,7 +169,7 @@ def train_evaluate_bert(train_reviews, train_labels, test_reviews, test_labels, 
             loss = loss_function(outputs.logits, labels)
             loss.backward()
             optimizer.step()
-        print(f"✅ Epoch {epoch+1} done.")
+        print(f" Epoch {epoch+1} done.")
 
     model.eval()
     predictions, actuals = [], []
@@ -205,7 +198,6 @@ def train_evaluate_bert(train_reviews, train_labels, test_reviews, test_labels, 
 #   5. Comparison and Visualization
 # ══════════════════════════════════
 def compare_and_visualize(results):
-    """Prints a comparison table and saves a visualization chart."""
     print("=" * 50)
     print("        FINAL MODEL COMPARISON")
     print("=" * 50)
@@ -218,7 +210,7 @@ def compare_and_visualize(results):
 
     best_model_name = comparison_df["F1 Score"].idxmax()
     best_f1_score = comparison_df["F1 Score"].max()
-    print(f"🏆 Best Model : {best_model_name} with F1 Score of {best_f1_score:.2f}%")
+    print(f" Best Model : {best_model_name} with F1 Score of {best_f1_score:.2f}%")
     print()
 
     comparison_df.plot(kind='bar', figsize=(12, 7), colormap='viridis')
@@ -230,13 +222,12 @@ def compare_and_visualize(results):
     plt.grid(axis="y", linestyle="--", alpha=0.7)
     plt.tight_layout()
     plt.savefig("model_comparison.png")
-    print("✅ Chart saved as model_comparison.png!")
+    print(" Chart saved as model_comparison.png!")
 
 # ══════════════════════════════════
 #   6. User Input Function
 # ══════════════════════════════════
 def predict_sentiment_interactive(models):
-    """Allows a user to input a review and get predictions from all models."""
     print("=" * 50)
     print("        INTERACTIVE PREDICTION")
     print("=" * 50)
@@ -266,10 +257,11 @@ def predict_sentiment_interactive(models):
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         models['bert_model'].eval()
         encoded = models["bert_tokenizer"](
-            review_text, max_length=64, padding="max_length", truncation=True, return_tensors="pt"
+            review_text, max_length=128, padding="max_length", truncation=True, return_tensors="pt"
         )
         input_ids = encoded["input_ids"].to(device)
         attention_mask = encoded["attention_mask"].to(device)
+
         with torch.no_grad():
             output = models['bert_model'](input_ids, attention_mask=attention_mask)
             prediction = torch.argmax(output.logits, dim=1).item()
@@ -282,7 +274,6 @@ def predict_sentiment_interactive(models):
 #   Main Execution Block
 # ══════════════════════════════════
 def main():
-    # Check if models exist
     models_exist = all([
         os.path.exists(NB_MODEL_PATH),
         os.path.exists(SVM_MODEL_PATH),
@@ -291,15 +282,15 @@ def main():
     ])
 
     if models_exist:
-        print("📁 Found existing models. Loading from disk...")
+        print(" Found existing models. Loading from disk...")
         nb_model = joblib.load(NB_MODEL_PATH)
         svm_model = joblib.load(SVM_MODEL_PATH)
         tfidf_vectorizer = joblib.load(TFIDF_PATH)
         bert_model = DistilBertForSequenceClassification.from_pretrained(BERT_MODEL_DIR)
         bert_tokenizer = DistilBertTokenizer.from_pretrained(BERT_MODEL_DIR)
-        print("✅ All models loaded successfully.")
+        print(" All models loaded successfully.")
     else:
-        print("🚀 No saved models found. Starting training process...")
+        print(" No saved models found. Starting training process...")
         hotel_data = load_data("tripadvisor_hotel_reviews.csv")
         if hotel_data is None: return
 
@@ -336,13 +327,13 @@ def main():
         )
 
         # Save everything
-        print("\n💾 Saving models for future use...")
+        print("\n Saving models for future use...")
         joblib.dump(nb_model, NB_MODEL_PATH)
         joblib.dump(svm_model, SVM_MODEL_PATH)
         joblib.dump(tfidf_vectorizer, TFIDF_PATH)
         bert_model.save_pretrained(BERT_MODEL_DIR)
         bert_tokenizer.save_pretrained(BERT_MODEL_DIR)
-        print("✅ Models saved in 'saved_models/' folder.")
+        print(" Models saved in 'saved_models/' folder.")
 
         # Final Comparison
         all_results = {"Naïve Bayes": nb_results, "SVM": svm_results, "BERT": bert_results}
