@@ -4,6 +4,8 @@ import re
 import torch
 import numpy as np
 import matplotlib
+import os
+import joblib  # For saving/loading scikit-learn models
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from nltk.corpus import stopwords
@@ -25,6 +27,18 @@ nltk.download("stopwords", quiet=True)
 nltk.download("wordnet", quiet=True)
 nltk.download("omw-1.4", quiet=True)
 nltk.download("punkt", quiet=True)
+
+# ══════════════════════════════════
+#   Constants & Paths
+# ══════════════════════════════════
+MODELS_DIR = "saved_models"
+NB_MODEL_PATH = os.path.join(MODELS_DIR, "nb_model.joblib")
+SVM_MODEL_PATH = os.path.join(MODELS_DIR, "svm_model.joblib")
+TFIDF_PATH = os.path.join(MODELS_DIR, "tfidf_vectorizer.joblib")
+BERT_MODEL_DIR = os.path.join(MODELS_DIR, "bert_model")
+
+if not os.path.exists(MODELS_DIR):
+    os.makedirs(MODELS_DIR)
 
 # ══════════════════════════════════
 #   1. Data Loading with Error Handling
@@ -63,6 +77,15 @@ def preprocess_text(text):
     tokens = [lemmatizer.lemmatize(word) for word in tokens]
     return " ".join(tokens)
 
+def is_english(text):
+    """Basic validation to ensure the text is English (contains only ASCII)."""
+    try:
+        text.encode('ascii')
+        # Check if it has at least some English letters to avoid symbols-only input
+        return bool(re.search('[a-zA-Z]', text))
+    except UnicodeEncodeError:
+        return False
+
 # ══════════════════════════════════
 #   Sentiment Conversion
 # ══════════════════════════════════
@@ -82,35 +105,23 @@ def convert_sentiment_to_number(sentiment):
 def train_evaluate_model(model, X_train, y_train, X_test, y_test, model_name):
     """Trains and evaluates a scikit-learn model."""
     print("=" * 50)
-    print(f"        MODEL - {model_name.upper()}")
+    print(f"        TRAINING MODEL - {model_name.upper()}")
     print("=" * 50)
     
     model.fit(X_train, y_train)
-    print("✅ Model trained!")
+    print(f"✅ {model_name} trained!")
     
     predictions = model.predict(X_test)
-    print("✅ Predictions done!")
-    print()
-    
     accuracy = accuracy_score(y_test, predictions)
     precision = precision_score(y_test, predictions, average='weighted', zero_division=0)
     recall = recall_score(y_test, predictions, average='weighted', zero_division=0)
     f1 = f1_score(y_test, predictions, average='weighted', zero_division=0)
     
-    print("── Results ──────────────────────────────────────")
-    print(f"Accuracy : {accuracy*100:.2f}%")
-    print(f"Precision: {precision*100:.2f}%")
-    print(f"Recall   : {recall*100:.2f}%")
-    print(f"F1 Score : {f1*100:.2f}%")
-    print()
-    print("── Detailed Report ──────────────────────────────")
-    print(classification_report(y_test, predictions, zero_division=0))
-    
     return model, {"Accuracy": accuracy, "Precision": precision, "Recall": recall, "F1 Score": f1}
 
 # BERT Specific Components
 class HotelReviewDataset(Dataset):
-    def __init__(self, reviews, labels, tokenizer, max_length=64): # Reduced max_length
+    def __init__(self, reviews, labels, tokenizer, max_length=64):
         self.reviews = reviews
         self.labels = labels
         self.tokenizer = tokenizer
@@ -137,10 +148,9 @@ class HotelReviewDataset(Dataset):
 def train_evaluate_bert(train_reviews, train_labels, test_reviews, test_labels, class_weights):
     """Handles the training and evaluation of the DistilBERT model."""
     print("=" * 50)
-    print("        MODEL - BERT (DistilBERT)")
+    print("        TRAINING MODEL - BERT (DistilBERT)")
     print("=" * 50)
 
-    # Using DistilBERT for speed
     tokenizer = DistilBertTokenizer.from_pretrained("distilbert-base-uncased")
     train_dataset = HotelReviewDataset(train_reviews, train_labels, tokenizer)
     test_dataset = HotelReviewDataset(test_reviews, test_labels, tokenizer)
@@ -150,12 +160,11 @@ def train_evaluate_bert(train_reviews, train_labels, test_reviews, test_labels, 
     model = DistilBertForSequenceClassification.from_pretrained("distilbert-base-uncased", num_labels=3)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
-    print(f"Using device: {device}")
 
     optimizer = AdamW(model.parameters(), lr=2e-5)
     loss_function = torch.nn.CrossEntropyLoss(weight=class_weights.to(device))
 
-    print(f"Training BERT on {len(train_reviews)} samples... (optimized for speed)")
+    print(f"Training BERT on {len(train_reviews)} samples...")
     for epoch in range(2):
         model.train()
         for batch in train_loader:
@@ -190,15 +199,6 @@ def train_evaluate_bert(train_reviews, train_labels, test_reviews, test_labels, 
     recall = recall_score(actual_sentiments, pred_sentiments, average='weighted', zero_division=0)
     f1 = f1_score(actual_sentiments, pred_sentiments, average='weighted', zero_division=0)
 
-    print("── Results ──────────────────────────────────────")
-    print(f"Accuracy : {accuracy*100:.2f}%")
-    print(f"Precision: {precision*100:.2f}%")
-    print(f"Recall   : {recall*100:.2f}%")
-    print(f"F1 Score : {f1*100:.2f}%")
-    print()
-    print("── Detailed Report ──────────────────────────────")
-    print(classification_report(actual_sentiments, pred_sentiments, zero_division=0))
-
     return model, tokenizer, {"Accuracy": accuracy, "Precision": precision, "Recall": recall, "F1 Score": f1}
 
 # ══════════════════════════════════
@@ -221,7 +221,6 @@ def compare_and_visualize(results):
     print(f"🏆 Best Model : {best_model_name} with F1 Score of {best_f1_score:.2f}%")
     print()
 
-    # Bar Chart
     comparison_df.plot(kind='bar', figsize=(12, 7), colormap='viridis')
     plt.title('Model Comparison', fontsize=16)
     plt.ylabel('Score (%)', fontsize=12)
@@ -247,6 +246,11 @@ def predict_sentiment_interactive(models):
         review_text = input("\nEnter your review: ")
         if review_text.lower() == 'quit':
             break
+        
+        # 1. English-Only Validation
+        if not is_english(review_text):
+            print("⚠️ Error: Please enter English text only.")
+            continue
 
         clean_review = preprocess_text(review_text)
 
@@ -260,14 +264,14 @@ def predict_sentiment_interactive(models):
 
         # BERT Prediction
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        models['bert']['model'].eval()
+        models['bert_model'].eval()
         encoded = models["bert_tokenizer"](
             review_text, max_length=64, padding="max_length", truncation=True, return_tensors="pt"
         )
         input_ids = encoded["input_ids"].to(device)
         attention_mask = encoded["attention_mask"].to(device)
         with torch.no_grad():
-            output = models['bert']['model'](input_ids, attention_mask=attention_mask)
+            output = models['bert_model'](input_ids, attention_mask=attention_mask)
             prediction = torch.argmax(output.logits, dim=1).item()
         
         sentiment_map = {0: "negative", 1: "neutral", 2: "positive"}
@@ -278,59 +282,79 @@ def predict_sentiment_interactive(models):
 #   Main Execution Block
 # ══════════════════════════════════
 def main():
-    hotel_data = load_data("tripadvisor_hotel_reviews.csv")
-    if hotel_data is None:
-        return
+    # Check if models exist
+    models_exist = all([
+        os.path.exists(NB_MODEL_PATH),
+        os.path.exists(SVM_MODEL_PATH),
+        os.path.exists(TFIDF_PATH),
+        os.path.exists(BERT_MODEL_DIR)
+    ])
 
-    # Preprocessing and Sentiment Conversion
-    hotel_data["Sentiment"] = hotel_data["Rating"].apply(convert_rating_to_sentiment)
-    hotel_data["Clean_Review"] = hotel_data["Review"].apply(preprocess_text)
-    hotel_data["Sentiment_Number"] = hotel_data["Sentiment"].apply(convert_sentiment_to_number)
+    if models_exist:
+        print("📁 Found existing models. Loading from disk...")
+        nb_model = joblib.load(NB_MODEL_PATH)
+        svm_model = joblib.load(SVM_MODEL_PATH)
+        tfidf_vectorizer = joblib.load(TFIDF_PATH)
+        bert_model = DistilBertForSequenceClassification.from_pretrained(BERT_MODEL_DIR)
+        bert_tokenizer = DistilBertTokenizer.from_pretrained(BERT_MODEL_DIR)
+        print("✅ All models loaded successfully.")
+    else:
+        print("🚀 No saved models found. Starting training process...")
+        hotel_data = load_data("tripadvisor_hotel_reviews.csv")
+        if hotel_data is None: return
 
-    # Fair Train-Test Split
-    train_data, test_data = train_test_split(hotel_data, test_size=0.2, random_state=42, stratify=hotel_data['Sentiment'])
+        # Preprocessing
+        hotel_data["Sentiment"] = hotel_data["Rating"].apply(convert_rating_to_sentiment)
+        hotel_data["Clean_Review"] = hotel_data["Review"].apply(preprocess_text)
+        hotel_data["Sentiment_Number"] = hotel_data["Sentiment"].apply(convert_sentiment_to_number)
 
-    # TF-IDF Vectorization for traditional models
-    tfidf_vectorizer = TfidfVectorizer(max_features=5000)
-    X_train_tfidf = tfidf_vectorizer.fit_transform(train_data["Clean_Review"])
-    X_test_tfidf = tfidf_vectorizer.transform(test_data["Clean_Review"])
+        train_data, test_data = train_test_split(hotel_data, test_size=0.2, random_state=42, stratify=hotel_data['Sentiment'])
 
-    # Address Data Imbalance for scikit-learn models
-    class_weights_sklearn = 'balanced'
+        # TF-IDF
+        tfidf_vectorizer = TfidfVectorizer(max_features=5000)
+        X_train_tfidf = tfidf_vectorizer.fit_transform(train_data["Clean_Review"])
+        X_test_tfidf = tfidf_vectorizer.transform(test_data["Clean_Review"])
 
-    # Train and Evaluate Models
-    nb_model, nb_results = train_evaluate_model(MultinomialNB(), X_train_tfidf, train_data["Sentiment"], X_test_tfidf, test_data["Sentiment"], "Naïve Bayes")
-    svm_model, svm_results = train_evaluate_model(LinearSVC(random_state=42, max_iter=2000, class_weight=class_weights_sklearn), X_train_tfidf, train_data["Sentiment"], X_test_tfidf, test_data["Sentiment"], "SVM")
+        # Train and Evaluate Models
+        nb_model, nb_results = train_evaluate_model(MultinomialNB(), X_train_tfidf, train_data["Sentiment"], X_test_tfidf, test_data["Sentiment"], "Naïve Bayes")
+        svm_model, svm_results = train_evaluate_model(LinearSVC(random_state=42, max_iter=2000, class_weight='balanced'), X_train_tfidf, train_data["Sentiment"], X_test_tfidf, test_data["Sentiment"], "SVM")
 
-    # Address Data Imbalance for BERT
-    class_counts = train_data['Sentiment_Number'].value_counts().sort_index()
-    class_weights_bert = (1 / class_counts) / (1 / class_counts).sum()
-    class_weights_bert = torch.tensor(class_weights_bert.values, dtype=torch.float)
+        # BERT Training
+        class_counts = train_data['Sentiment_Number'].value_counts().sort_index()
+        class_weights_bert = (1 / class_counts) / (1 / class_counts).sum()
+        class_weights_bert = torch.tensor(class_weights_bert.values, dtype=torch.float)
 
-    # REDUCING DATA FOR BERT (CHANGE THESE NUMBERS TO CONTROL SPEED)
-    # 3000 training samples and 750 test samples is much faster
-    bert_train_sample = train_data.sample(n=1000, random_state=42)
-    bert_test_sample = test_data.sample(n=500, random_state=42)
+        # bert_train_sample = train_data.sample(n=1000, random_state=42)
+        # bert_test_sample = test_data.sample(n=500, random_state=42)
 
-    bert_model, bert_tokenizer, bert_results = train_evaluate_bert(
-        bert_train_sample['Review'].tolist(), 
-        bert_train_sample['Sentiment_Number'].tolist(), 
-        bert_test_sample['Review'].tolist(), 
-        bert_test_sample['Sentiment_Number'].tolist(), 
-        class_weights_bert
-    )
+        bert_model, bert_tokenizer, bert_results = train_evaluate_bert(
+            train_data['Review'].tolist(), 
+            train_data['Sentiment_Number'].tolist(), 
+            test_data['Review'].tolist(), 
+            test_data['Sentiment_Number'].tolist(), 
+            class_weights_bert
+        )
 
-    # Final Comparison
-    all_results = {"Naïve Bayes": nb_results, "SVM": svm_results, "BERT": bert_results}
-    compare_and_visualize(all_results)
+        # Save everything
+        print("\n💾 Saving models for future use...")
+        joblib.dump(nb_model, NB_MODEL_PATH)
+        joblib.dump(svm_model, SVM_MODEL_PATH)
+        joblib.dump(tfidf_vectorizer, TFIDF_PATH)
+        bert_model.save_pretrained(BERT_MODEL_DIR)
+        bert_tokenizer.save_pretrained(BERT_MODEL_DIR)
+        print("✅ Models saved in 'saved_models/' folder.")
+
+        # Final Comparison
+        all_results = {"Naïve Bayes": nb_results, "SVM": svm_results, "BERT": bert_results}
+        compare_and_visualize(all_results)
 
     # Interactive Prediction
     trained_models = {
         'naive_bayes': nb_model,
         'svm': svm_model,
-        'bert': {'model': bert_model, 'tokenizer': bert_tokenizer},
-        'tfidf_vectorizer': tfidf_vectorizer,
-        'bert_tokenizer': bert_tokenizer
+        'bert_model': bert_model,
+        'bert_tokenizer': bert_tokenizer,
+        'tfidf_vectorizer': tfidf_vectorizer
     }
     predict_sentiment_interactive(trained_models)
 
