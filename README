@@ -1,1 +1,5 @@
+<<<<<<< HEAD
 pip install pandas numpy matplotlib seaborn scikit-learn nltk transformers torch jupyter notebook wordcloud torch transformers langdetect
+=======
+pip install pandas numpy matplotlib seaborn scikit-learn nltk transformers torch jupyter notebook wordcloud torch transformers langdetect
+>>>>>>> 96cc83835814ccd8e694a20dd39ecb703963f2d4
