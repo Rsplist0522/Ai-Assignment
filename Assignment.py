@@ -1,4 +1,6 @@
 import pandas as pd
+from langdetect import detect, DetectorFactory
+from deep_translator import GoogleTranslator
 import nltk
 import re
 import torch
@@ -74,12 +76,17 @@ def preprocess_text(text):
     tokens = [lemmatizer.lemmatize(word) for word in tokens]
     return " ".join(tokens)
 
-def is_english(text):
+def process_and_translate(text):
+    DetectorFactory.seed = 0
     try:
-        text.encode('ascii')
-        return bool(re.search('[a-zA-Z]', text))
-    except UnicodeEncodeError:
-        return False
+        lang = detect(text)
+        if lang != 'en':
+            translated = GoogleTranslator(source='auto', target='en').translate(text)
+            print(f"Translated text: {translated}")
+            return translated
+        return text
+    except:
+        return text
 
 # ══════════════════════════════════
 #   Sentiment Conversion
@@ -238,12 +245,10 @@ def predict_sentiment_interactive(models):
         if review_text.lower() == 'quit':
             break
         
-        # 1. English-Only Validation
-        if not is_english(review_text):
-            print("⚠️ Error: Please enter English text only.")
-            continue
-
-        clean_review = preprocess_text(review_text)
+        # 1. Language Detection & Translation
+        translated_review = process_and_translate(review_text)
+        
+        clean_review = preprocess_text(translated_review)
 
         # Naive Bayes & SVM Prediction
         review_vector = models['tfidf_vectorizer'].transform([clean_review])
@@ -257,7 +262,7 @@ def predict_sentiment_interactive(models):
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         models['bert_model'].eval()
         encoded = models["bert_tokenizer"](
-            review_text, max_length=128, padding="max_length", truncation=True, return_tensors="pt"
+            translated_review, max_length=128, padding="max_length", truncation=True, return_tensors="pt"
         )
         input_ids = encoded["input_ids"].to(device)
         attention_mask = encoded["attention_mask"].to(device)
