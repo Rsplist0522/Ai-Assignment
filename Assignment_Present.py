@@ -63,7 +63,7 @@ def load_data(file_path):
 lemmatizer = WordNetLemmatizer() #change word to base form
 stop_words = set(stopwords.words("english")) #remove not important words
 
-def preprocess_text(text):
+def preprocess_text(text): #might affect Bert hmm
     text = text.lower()
     text = re.sub(r'\d+', '', text) #remove numbers
     text = re.sub(r'[^a-z\s]', '', text) #remove symbol
@@ -146,7 +146,7 @@ def train_evaluate_bert(train_reviews, train_labels, test_reviews, test_labels, 
     loss_function = torch.nn.CrossEntropyLoss(weight=class_weights.to(device))
 
     print(f"Training BERT on {len(train_reviews)} samples...")
-    for epoch in range(2):
+    for epoch in range(4):
         model.train()
         for batch in train_loader:
             optimizer.zero_grad()
@@ -275,7 +275,7 @@ def main():
 
         # BERT Training
         class_counts = train_data['Sentiment_Number'].value_counts().sort_index()
-        class_weights_bert = (1 / class_counts) / (1 / class_counts).sum()
+        class_weights_bert = 1 / class_counts 
         class_weights_bert = torch.tensor(class_weights_bert.values, dtype=torch.float)
 
         # bert_train_sample = train_data.sample(n=1000, random_state=42)
