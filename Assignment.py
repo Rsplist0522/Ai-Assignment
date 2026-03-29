@@ -8,6 +8,8 @@ import numpy as np
 import matplotlib
 import os
 import joblib 
+import contractions
+import emoji
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from nltk.corpus import stopwords
@@ -42,12 +44,27 @@ BERT_MODEL_DIR = os.path.join(MODELS_DIR, "bert_model")
 if not os.path.exists(MODELS_DIR):
     os.makedirs(MODELS_DIR)
 
+def check_model_files(directory):
+    if not os.path.exists(directory):
+        return False
+    essential_files = ["config.json", "tokenizer_config.json"]
+    has_weights = os.path.exists(os.path.join(directory, "model.safetensors")) or \
+                os.path.exists(os.path.join(directory, "pytorch_model.bin"))
+    has_essentials = all(os.path.exists(os.path.join(directory, f)) for f in essential_files)
+    return has_essentials and has_weights
+
 # ══════════════════════════════════
 #   1. Load Dataset
 # ══════════════════════════════════
 def load_data(file_path):
     try:
+        if not os.path.exists(file_path):
+            print(f" [!] Error: File \'{file_path}\' not found.")
+            return None
         data = pd.read_csv(file_path)
+        if not all(col in data.columns for col in ["Rating", "Review"]):
+            print(" [!] Error: Dataset missing \'Rating\' or \'Review\' columns.")
+            return None
         print("Dataset loaded successfully.")
         print("=" * 50)
         print("         DATASET INFO")
@@ -56,8 +73,8 @@ def load_data(file_path):
         print(f"Columns       : {data.columns.tolist()}")
         print()
         return data
-    except FileNotFoundError:
-        print(f" Error: The file '{file_path}' was not found.")
+    except Exception as e:
+        print(f" [!] Error loading data: {e}")
         return None
 
 # ══════════════════════════════════
@@ -76,16 +93,27 @@ def preprocess_text(text):
     tokens = [lemmatizer.lemmatize(word) for word in tokens]
     return " ".join(tokens)
 
+def preprocess_bert(text):
+    text = str(text).lower()
+    text = re.sub(r'<.*?>', '', text)
+    text = re.sub(r'http\S+|www\S+|https\S+', '', text, flags=re.MULTILINE)
+    text = contractions.fix(text)
+    text = emoji.demojize(text, delimiters=(" ", " "))
+    text = text.replace("_", " ").replace(":", "")
+    text = " ".join(text.split())
+    return text
+
 def process_and_translate(text):
     DetectorFactory.seed = 0
     try:
         lang = detect(text)
         if lang != 'en':
             translated = GoogleTranslator(source='auto', target='en').translate(text)
-            print(f"Translated text: {translated}")
+            # print(f"Translated text: {translated}") # Removed for cleaner output during interactive mode
             return translated
         return text
-    except:
+    except Exception as e:
+        # print(f"Translation error: {e}") # Optionally log error
         return text
 
 # ══════════════════════════════════
@@ -123,7 +151,7 @@ def train_evaluate_model(model, X_train, y_train, X_test, y_test, model_name):
 # BERT Specific Components
 class HotelReviewDataset(Dataset):
     def __init__(self, reviews, labels, tokenizer, max_length=128):
-        self.reviews = reviews
+        self.reviews = [preprocess_bert(r) for r in reviews] # Apply BERT-specific preprocessing here
         self.labels = labels
         self.tokenizer = tokenizer
         self.max_length = max_length
@@ -132,7 +160,7 @@ class HotelReviewDataset(Dataset):
         return len(self.reviews)
 
     def __getitem__(self, index):
-        review = str(self.reviews[index])
+        review = self.reviews[index]
         encoded = self.tokenizer(
             review,
             max_length=self.max_length,
@@ -165,7 +193,7 @@ def train_evaluate_bert(train_reviews, train_labels, test_reviews, test_labels, 
     loss_function = torch.nn.CrossEntropyLoss(weight=class_weights.to(device))
 
     print(f"Training BERT on {len(train_reviews)} samples...")
-    for epoch in range(2):
+    for epoch in range(4): # Changed from 2 to 4 epochs as per refined code
         model.train()
         for batch in train_loader:
             optimizer.zero_grad()
@@ -238,52 +266,67 @@ def predict_sentiment_interactive(models):
     print("=" * 50)
     print("        INTERACTIVE PREDICTION")
     print("=" * 50)
-    print("Enter a review to analyze, or type 'quit' to exit.")
+    print("Enter a review to analyze, or type \'quit\' to exit.")
 
     while True:
         review_text = input("\nEnter your review: ")
         if review_text.lower() == 'quit':
             break
         
+        # Input validation from refined BERT code
+        if not review_text.strip():
+            print(" [!] Warning: Input is empty. Please enter a valid review.")
+            continue
+            
+        if len(review_text.strip()) < 3:
+            print(" [!] Warning: Input is too short. Please provide more detail for accurate analysis.")
+            continue
+            
+        if not any(char.isalpha() for char in review_text):
+            print(" [!] Warning: Input contains no alphabetic characters. Please enter a text review.")
+            continue
+
         # 1. Language Detection & Translation
         translated_review = process_and_translate(review_text)
         
-        clean_review = preprocess_text(translated_review)
-
         # Naive Bayes & SVM Prediction
-        review_vector = models['tfidf_vectorizer'].transform([clean_review])
-        nb_pred = models['naive_bayes'].predict(review_vector)[0]
-        svm_pred = models['svm'].predict(review_vector)[0]
-
-        print(f"\nNaïve Bayes Prediction: {nb_pred.upper()}")
-        print(f"SVM Prediction          : {svm_pred.upper()}")
+        if 'naive_bayes' in models and 'svm' in models and 'tfidf_vectorizer' in models:
+            clean_review_nb_svm = preprocess_text(translated_review)
+            review_vector = models['tfidf_vectorizer'].transform([clean_review_nb_svm])
+            nb_pred = models['naive_bayes'].predict(review_vector)[0]
+            svm_pred = models['svm'].predict(review_vector)[0]
+            print(f"\nNaïve Bayes Prediction: {nb_pred.upper()}")
+            print(f"SVM Prediction          : {svm_pred.upper()}")
 
         # BERT Prediction
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        models['bert_model'].eval()
-        encoded = models["bert_tokenizer"](
-            translated_review, max_length=128, padding="max_length", truncation=True, return_tensors="pt"
-        )
-        input_ids = encoded["input_ids"].to(device)
-        attention_mask = encoded["attention_mask"].to(device)
+        if 'bert_model' in models and 'bert_tokenizer' in models:
+            bert_ready_review = preprocess_bert(translated_review)
+            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            models['bert_model'].eval()
+            encoded = models["bert_tokenizer"](
+                bert_ready_review, max_length=128, padding="max_length", truncation=True, return_tensors="pt"
+            )
+            input_ids = encoded["input_ids"].to(device)
+            attention_mask = encoded["attention_mask"].to(device)
 
-        with torch.no_grad():
-            output = models['bert_model'](input_ids, attention_mask=attention_mask)
-            prediction = torch.argmax(output.logits, dim=1).item()
-        
-        sentiment_map = {0: "negative", 1: "neutral", 2: "positive"}
-        bert_pred = sentiment_map[prediction]
-        print(f"BERT Prediction         : {bert_pred.upper()}")
+            with torch.no_grad():
+                output = models['bert_model'](input_ids, attention_mask=attention_mask)
+                prediction = torch.argmax(output.logits, dim=1).item()
+            
+            sentiment_map = {0: "negative", 1: "neutral", 2: "positive"}
+            bert_pred = sentiment_map[prediction]
+            print(f"BERT Prediction         : {bert_pred.upper()}")
 
 # ══════════════════════════════════
 #   Main Execution Block
 # ══════════════════════════════════
 def main():
+    # Check for existence of all models
     models_exist = all([
         os.path.exists(NB_MODEL_PATH),
         os.path.exists(SVM_MODEL_PATH),
         os.path.exists(TFIDF_PATH),
-        os.path.exists(BERT_MODEL_DIR)
+        check_model_files(BERT_MODEL_DIR)
     ])
 
     if models_exist:
@@ -294,34 +337,33 @@ def main():
         bert_model = DistilBertForSequenceClassification.from_pretrained(BERT_MODEL_DIR)
         bert_tokenizer = DistilBertTokenizer.from_pretrained(BERT_MODEL_DIR)
         print(" All models loaded successfully.")
+        all_results = {} # No results to display if models are just loaded
     else:
-        print(" No saved models found. Starting training process...")
+        print(" No complete set of models found. Starting training process...")
         hotel_data = load_data("tripadvisor_hotel_reviews.csv")
         if hotel_data is None: return
 
         # Preprocessing
         hotel_data["Sentiment"] = hotel_data["Rating"].apply(convert_rating_to_sentiment)
-        hotel_data["Clean_Review"] = hotel_data["Review"].apply(preprocess_text)
+        hotel_data["Clean_Review_NBSVM"] = hotel_data["Review"].apply(preprocess_text)
         hotel_data["Sentiment_Number"] = hotel_data["Sentiment"].apply(convert_sentiment_to_number)
 
         train_data, test_data = train_test_split(hotel_data, test_size=0.2, random_state=42, stratify=hotel_data['Sentiment'])
 
         # TF-IDF
         tfidf_vectorizer = TfidfVectorizer(max_features=5000)
-        X_train_tfidf = tfidf_vectorizer.fit_transform(train_data["Clean_Review"])
-        X_test_tfidf = tfidf_vectorizer.transform(test_data["Clean_Review"])
+        X_train_tfidf = tfidf_vectorizer.fit_transform(train_data["Clean_Review_NBSVM"])
+        X_test_tfidf = tfidf_vectorizer.transform(test_data["Clean_Review_NBSVM"])
 
-        # Train and Evaluate Models
+        # Train and Evaluate Scikit-learn Models
         nb_model, nb_results = train_evaluate_model(MultinomialNB(), X_train_tfidf, train_data["Sentiment"], X_test_tfidf, test_data["Sentiment"], "Naïve Bayes")
         svm_model, svm_results = train_evaluate_model(LinearSVC(random_state=42, max_iter=2000, class_weight='balanced'), X_train_tfidf, train_data["Sentiment"], X_test_tfidf, test_data["Sentiment"], "SVM")
 
         # BERT Training
         class_counts = train_data['Sentiment_Number'].value_counts().sort_index()
+        # Normalizing class weights for CrossEntropyLoss
         class_weights_bert = (1 / class_counts) / (1 / class_counts).sum()
         class_weights_bert = torch.tensor(class_weights_bert.values, dtype=torch.float)
-
-        # bert_train_sample = train_data.sample(n=1000, random_state=42)
-        # bert_test_sample = test_data.sample(n=500, random_state=42)
 
         bert_model, bert_tokenizer, bert_results = train_evaluate_bert(
             train_data['Review'].tolist(), 
@@ -338,7 +380,7 @@ def main():
         joblib.dump(tfidf_vectorizer, TFIDF_PATH)
         bert_model.save_pretrained(BERT_MODEL_DIR)
         bert_tokenizer.save_pretrained(BERT_MODEL_DIR)
-        print(" Models saved in 'saved_models/' folder.")
+        print(" Models saved in \'saved_models/\' folder.")
 
         # Final Comparison
         all_results = {"Naïve Bayes": nb_results, "SVM": svm_results, "BERT": bert_results}
