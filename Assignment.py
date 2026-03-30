@@ -109,12 +109,10 @@ def process_and_translate(text):
         lang = detect(text)
         if lang != 'en':
             translated = GoogleTranslator(source='auto', target='en').translate(text)
-            # print(f"Translated text: {translated}") # Removed for cleaner output during interactive mode
-            return translated
-        return text
-    except Exception as e:
-        # print(f"Translation error: {e}") # Optionally log error
-        return text
+            return translated, lang      
+        return text, None
+    except Exception:
+        return text, None
 
 # ══════════════════════════════════
 #   Sentiment Conversion
@@ -151,7 +149,7 @@ def train_evaluate_model(model, X_train, y_train, X_test, y_test, model_name):
 # BERT Specific Components
 class HotelReviewDataset(Dataset):
     def __init__(self, reviews, labels, tokenizer, max_length=128):
-        self.reviews = [preprocess_bert(r) for r in reviews] # Apply BERT-specific preprocessing here
+        self.reviews = [preprocess_bert(r) for r in reviews]
         self.labels = labels
         self.tokenizer = tokenizer
         self.max_length = max_length
@@ -193,7 +191,7 @@ def train_evaluate_bert(train_reviews, train_labels, test_reviews, test_labels, 
     loss_function = torch.nn.CrossEntropyLoss(weight=class_weights.to(device))
 
     print(f"Training BERT on {len(train_reviews)} samples...")
-    for epoch in range(4): # Changed from 2 to 4 epochs as per refined code
+    for epoch in range(4):
         model.train()
         for batch in train_loader:
             optimizer.zero_grad()
@@ -273,7 +271,6 @@ def predict_sentiment_interactive(models):
         if review_text.lower() == 'quit':
             break
         
-        # Input validation from refined BERT code
         if not review_text.strip():
             print(" [!] Warning: Input is empty. Please enter a valid review.")
             continue
@@ -286,8 +283,10 @@ def predict_sentiment_interactive(models):
             print(" [!] Warning: Input contains no alphabetic characters. Please enter a text review.")
             continue
 
-        # 1. Language Detection & Translation
-        translated_review = process_and_translate(review_text)
+        translated_review, detected_lang = process_and_translate(review_text)
+        if detected_lang:
+            print(f"Translated text   : {translated_review}")
+
         
         # Naive Bayes & SVM Prediction
         if 'naive_bayes' in models and 'svm' in models and 'tfidf_vectorizer' in models:
@@ -321,7 +320,6 @@ def predict_sentiment_interactive(models):
 #   Main Execution Block
 # ══════════════════════════════════
 def main():
-    # Check for existence of all models
     models_exist = all([
         os.path.exists(NB_MODEL_PATH),
         os.path.exists(SVM_MODEL_PATH),
@@ -337,7 +335,7 @@ def main():
         bert_model = DistilBertForSequenceClassification.from_pretrained(BERT_MODEL_DIR)
         bert_tokenizer = DistilBertTokenizer.from_pretrained(BERT_MODEL_DIR)
         print(" All models loaded successfully.")
-        all_results = {} # No results to display if models are just loaded
+        all_results = {} 
     else:
         print(" No complete set of models found. Starting training process...")
         hotel_data = load_data("tripadvisor_hotel_reviews.csv")
