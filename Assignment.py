@@ -13,6 +13,7 @@ import contractions
 import emoji
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+import copy
 from nltk.corpus import stopwords
 from nltk.stem import WordNetLemmatizer
 from nltk.tokenize import word_tokenize
@@ -26,6 +27,7 @@ from torch.utils.data import Dataset, DataLoader
 from torch.optim import AdamW
 from sklearn.model_selection import learning_curve
 from sklearn.utils import resample
+from transformers import get_linear_schedule_with_warmup
 
 
 
@@ -120,6 +122,8 @@ def load_data(file_path):
 # ══════════════════════════════════
 lemmatizer = WordNetLemmatizer() #change word to base form
 stop_words = set(stopwords.words("english")) #remove not important words
+stop_words -= {"not", "no", "never", "nor", "neither", "nothing", "nobody"}
+
 
 def preprocess_text(text):
     text = text.lower()
@@ -207,7 +211,7 @@ def train_evaluate_model(model, X_train, y_train, X_test, y_test, model_name):
 
 # BERT Specific Components
 class HotelReviewDataset(Dataset):
-    def __init__(self, reviews, labels, tokenizer, max_length=128):
+    def __init__(self, reviews, labels, tokenizer, max_length=256):
         # 1. Tokenize the entire list of reviews at once
         self.encodings = tokenizer(
             [preprocess_bert(r) for r in reviews],
@@ -245,15 +249,21 @@ def train_evaluate_bert(train_reviews, train_labels, test_reviews, test_labels, 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
 
-    optimizer = AdamW(model.parameters(), lr=2e-5)
+    optimizer = AdamW(model.parameters(), lr=1e-5, weight_decay=0.01)
+    total_steps = len(train_loader) * 4
+    scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=total_steps//10, num_training_steps=total_steps)
     loss_function = torch.nn.CrossEntropyLoss(weight=class_weights.to(device))
 
     # --- Tracking lists ---
     train_losses, val_losses = [], []
     train_accuracies, val_accuracies = [], []
+    best_val_accuracy = 0
+    patience = 2
+    patience_counter = 0
+    best_model_state = None
 
     print(f"Training BERT on {len(train_reviews)} samples...")
-    for epoch in range(4):
+    for epoch in range(6):
         # ── Training phase ──
         model.train()
         total_train_loss, correct_train, total_train = 0, 0, 0
@@ -262,10 +272,11 @@ def train_evaluate_bert(train_reviews, train_labels, test_reviews, test_labels, 
             input_ids = batch["input_ids"].to(device)
             attention_mask = batch["attention_mask"].to(device)
             labels = batch["label"].to(device)
-            outputs = model(input_ids, attention_mask=attention_mask, labels=labels)
+            outputs = model(input_ids, attention_mask=attention_mask)
             loss = loss_function(outputs.logits, labels)
             loss.backward()
             optimizer.step()
+            scheduler.step()
             total_train_loss += loss.item()
             preds = torch.argmax(outputs.logits, dim=1)
             correct_train += (preds == labels).sum().item()
@@ -298,8 +309,23 @@ def train_evaluate_bert(train_reviews, train_labels, test_reviews, test_labels, 
 
         print(f" Epoch {epoch+1} | Train Loss: {avg_train_loss:.4f}, Val Loss: {avg_val_loss:.4f} | Train Acc: {train_acc:.4f}, Val Acc: {val_acc:.4f}")
 
+        if val_acc > best_val_accuracy:
+            best_val_accuracy = val_acc
+            best_model_state = copy.deepcopy(model.state_dict())
+            patience_counter = 0
+            print(f" New best model saved at epoch {epoch+1}!")
+        else:
+            patience_counter += 1
+            print(f" No improvement. Patience: {patience_counter}/{patience}")
+            if patience_counter >= patience:
+                print(f" Early stopping triggered at epoch {epoch+1}!")
+                break
+
+    model.load_state_dict(best_model_state)
+
+
     # ── Plot overfitting graphs ──
-    epochs = range(1, 5)
+    epochs = range(1, len(train_losses) + 1)
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
 
     ax1.plot(epochs, train_losses, label='Training Loss', marker='o')
@@ -451,7 +477,7 @@ def tune_svm(X_train, y_train):
                               stratify=y_train)
     
     param_grid = {
-        'C': [0.1, 1, 10],
+        'C': [0.001, 0.01, 0.1],
         'gamma': ['scale', 'auto', 0.1, 0.01],
         'kernel': ['rbf']
     }
@@ -510,7 +536,7 @@ def main():
         train_data, test_data = train_test_split(hotel_data, test_size=0.2, random_state=42, stratify=hotel_data['Sentiment'])
 
         # TF-IDF
-        tfidf_vectorizer = TfidfVectorizer(max_features=2500)
+        tfidf_vectorizer = TfidfVectorizer(max_features=10000, ngram_range=(1, 3), sublinear_tf=True, min_df=2)
         X_train_tfidf = tfidf_vectorizer.fit_transform(train_data["Clean_Review_NBSVM"])
         X_test_tfidf = tfidf_vectorizer.transform(test_data["Clean_Review_NBSVM"])
 
@@ -521,7 +547,7 @@ def main():
         # BERT Training
         class_counts = train_data['Sentiment_Number'].value_counts().sort_index()
         # Normalizing class weights for CrossEntropyLoss
-        class_weights_bert = (1 / class_counts) / (1 / class_counts).sum()
+        class_weights_bert = 1.0 / class_counts
         class_weights_bert = torch.tensor(class_weights_bert.values, dtype=torch.float)
 
         bert_model, bert_tokenizer, bert_results = train_evaluate_bert(

@@ -36,7 +36,7 @@ def check_model_files(directory):
 # ══════════════════════════════════
 
 def preprocess_bert(text):
-    text = str(text)
+    text = str(text).lower()
     text = re.sub(r'<.*?>', '', text)
     text = re.sub(r'http\S+|www\S+|https\S+', '', text, flags=re.MULTILINE)
     text = contractions.fix(text)
@@ -88,11 +88,6 @@ class HotelReviewDataset(Dataset):
             "attention_mask": self.encodings["attention_mask"][index],
             "label": self.labels[index]
         }
-        return {
-            "input_ids": encoded["input_ids"].squeeze(),
-            "attention_mask": encoded["attention_mask"].squeeze(),
-            "label": torch.tensor(self.labels[index], dtype=torch.long)
-        }
 
 def train_evaluate_bert(train_reviews, train_labels, test_reviews, test_labels, class_weights):
     print("=" * 50)
@@ -120,7 +115,7 @@ def train_evaluate_bert(train_reviews, train_labels, test_reviews, test_labels, 
             input_ids = batch["input_ids"].to(device)
             attention_mask = batch["attention_mask"].to(device)
             labels = batch["label"].to(device)
-            outputs = model(input_ids, attention_mask=attention_mask, labels=labels)
+            outputs = model(input_ids, attention_mask=attention_mask)
             loss = loss_function(outputs.logits, labels)
             loss.backward()
             optimizer.step()
