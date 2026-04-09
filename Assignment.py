@@ -6,6 +6,7 @@ import re
 import torch
 import numpy as np
 import matplotlib
+import seaborn as sns
 import os
 import joblib 
 import contractions
@@ -16,13 +17,17 @@ from nltk.corpus import stopwords
 from nltk.stem import WordNetLemmatizer
 from nltk.tokenize import word_tokenize
 from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, GridSearchCV
 from sklearn.naive_bayes import MultinomialNB
-from sklearn.svm import LinearSVC
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, classification_report
+from sklearn.svm import SVC
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, classification_report, confusion_matrix
 from transformers import DistilBertTokenizer, DistilBertForSequenceClassification
 from torch.utils.data import Dataset, DataLoader
 from torch.optim import AdamW
+from sklearn.model_selection import learning_curve
+from sklearn.utils import resample
+
+
 
 # ══════════════════════════════════
 #   download NLTK
@@ -52,6 +57,39 @@ def check_model_files(directory):
                 os.path.exists(os.path.join(directory, "pytorch_model.bin"))
     has_essentials = all(os.path.exists(os.path.join(directory, f)) for f in essential_files)
     return has_essentials and has_weights
+
+def plot_confusion_matrix(y_true, y_pred, model_name):
+    labels = ["negative", "neutral", "positive"]
+    cm = confusion_matrix(y_true, y_pred, labels=labels)
+
+    # Heatmap (raw counts)
+    plt.figure(figsize=(7, 5))
+    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
+                xticklabels=labels, yticklabels=labels,
+                linewidths=0.5, linecolor='gray')
+    plt.title(f'Confusion Matrix (Counts) - {model_name}', fontsize=14)
+    plt.ylabel('Actual', fontsize=12)
+    plt.xlabel('Predicted', fontsize=12)
+    plt.tight_layout()
+    safe_name = model_name.replace(' ', '_').replace('(', '').replace(')', '')
+    plt.savefig(f"confusion_matrix_{safe_name}.png")
+    plt.close()
+    print(f" Confusion matrix saved for {model_name}!")
+
+    # Heatmap (normalized %)
+    cm_norm = cm.astype('float') / cm.sum(axis=1, keepdims=True) * 100
+    plt.figure(figsize=(7, 5))
+    sns.heatmap(cm_norm, annot=True, fmt='.1f', cmap='YlOrRd',
+                xticklabels=labels, yticklabels=labels,
+                linewidths=0.5, linecolor='gray',
+                vmin=0, vmax=100)
+    plt.title(f'Confusion Matrix (%) - {model_name}', fontsize=14)
+    plt.ylabel('Actual', fontsize=12)
+    plt.xlabel('Predicted', fontsize=12)
+    plt.tight_layout()
+    plt.savefig(f"confusion_matrix_norm_{safe_name}.png")
+    plt.close()
+    print(f" Normalised heatmap saved for {model_name}!")
 
 # ══════════════════════════════════
 #   1. Load Dataset
@@ -134,43 +172,63 @@ def train_evaluate_model(model, X_train, y_train, X_test, y_test, model_name):
     print("=" * 50)
     print(f"        TRAINING MODEL - {model_name.upper()}")
     print("=" * 50)
-    
+
     model.fit(X_train, y_train)
     print(f" {model_name} trained!")
-    
+
+    # Learning curve for overfitting visualization
+    train_sizes, train_scores, val_scores = learning_curve(
+        model, X_train, y_train, cv=5, scoring='accuracy',
+        train_sizes=np.linspace(0.1, 1.0, 10), n_jobs=-1
+    )
+    train_mean = train_scores.mean(axis=1)
+    val_mean = val_scores.mean(axis=1)
+
+    plt.figure(figsize=(8, 5))
+    plt.plot(train_sizes, train_mean, label='Training Accuracy', marker='o')
+    plt.plot(train_sizes, val_mean, label='Validation Accuracy', marker='s')
+    plt.title(f'Learning Curve - {model_name}')
+    plt.xlabel('Training Size')
+    plt.ylabel('Accuracy')
+    plt.legend()
+    plt.grid(True, linestyle='--', alpha=0.7)
+    plt.tight_layout()
+    plt.savefig(f"overfitting_{model_name.replace(' ', '_').replace('(', '').replace(')', '')}.png")
+    plt.close()
+    print(f" Overfitting graph saved for {model_name}!")
+
     predictions = model.predict(X_test)
     accuracy = accuracy_score(y_test, predictions)
     precision = precision_score(y_test, predictions, average='weighted', zero_division=0)
     recall = recall_score(y_test, predictions, average='weighted', zero_division=0)
     f1 = f1_score(y_test, predictions, average='weighted', zero_division=0)
-    
+    plot_confusion_matrix(y_test, predictions, model_name)
     return model, {"Accuracy": accuracy, "Precision": precision, "Recall": recall, "F1 Score": f1}
 
 # BERT Specific Components
 class HotelReviewDataset(Dataset):
     def __init__(self, reviews, labels, tokenizer, max_length=128):
-        self.reviews = [preprocess_bert(r) for r in reviews]
-        self.labels = labels
-        self.tokenizer = tokenizer
-        self.max_length = max_length
-
-    def __len__(self):
-        return len(self.reviews)
-
-    def __getitem__(self, index):
-        review = self.reviews[index]
-        encoded = self.tokenizer(
-            review,
-            max_length=self.max_length,
+        # 1. Tokenize the entire list of reviews at once
+        self.encodings = tokenizer(
+            [preprocess_bert(r) for r in reviews],
+            max_length=max_length,
             padding="max_length",
             truncation=True,
             return_tensors="pt"
         )
+        # 2. Convert all labels to a single tensor right now
+        self.labels = torch.tensor(labels, dtype=torch.long)
+
+    def __len__(self):
+        return len(self.labels)
+
+    def __getitem__(self, index):
         return {
-            "input_ids": encoded["input_ids"].squeeze(),
-            "attention_mask": encoded["attention_mask"].squeeze(),
-            "label": torch.tensor(self.labels[index], dtype=torch.long)
+            "input_ids": self.encodings["input_ids"][index],
+            "attention_mask": self.encodings["attention_mask"][index],
+            "label": self.labels[index]
         }
+
 
 def train_evaluate_bert(train_reviews, train_labels, test_reviews, test_labels, class_weights):
     print("=" * 50)
@@ -180,8 +238,8 @@ def train_evaluate_bert(train_reviews, train_labels, test_reviews, test_labels, 
     tokenizer = DistilBertTokenizer.from_pretrained("distilbert-base-uncased")
     train_dataset = HotelReviewDataset(train_reviews, train_labels, tokenizer)
     test_dataset = HotelReviewDataset(test_reviews, test_labels, tokenizer)
-    train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True)
-    test_loader = DataLoader(test_dataset, batch_size=16)
+    train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
+    test_loader = DataLoader(test_dataset, batch_size=32)
 
     model = DistilBertForSequenceClassification.from_pretrained("distilbert-base-uncased", num_labels=3)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -190,9 +248,15 @@ def train_evaluate_bert(train_reviews, train_labels, test_reviews, test_labels, 
     optimizer = AdamW(model.parameters(), lr=2e-5)
     loss_function = torch.nn.CrossEntropyLoss(weight=class_weights.to(device))
 
+    # --- Tracking lists ---
+    train_losses, val_losses = [], []
+    train_accuracies, val_accuracies = [], []
+
     print(f"Training BERT on {len(train_reviews)} samples...")
     for epoch in range(4):
+        # ── Training phase ──
         model.train()
+        total_train_loss, correct_train, total_train = 0, 0, 0
         for batch in train_loader:
             optimizer.zero_grad()
             input_ids = batch["input_ids"].to(device)
@@ -202,10 +266,66 @@ def train_evaluate_bert(train_reviews, train_labels, test_reviews, test_labels, 
             loss = loss_function(outputs.logits, labels)
             loss.backward()
             optimizer.step()
-        print(f" Epoch {epoch+1} done.")
+            total_train_loss += loss.item()
+            preds = torch.argmax(outputs.logits, dim=1)
+            correct_train += (preds == labels).sum().item()
+            total_train += labels.size(0)
 
-    model.eval()
+        avg_train_loss = total_train_loss / len(train_loader)
+        train_acc = correct_train / total_train
+        train_losses.append(avg_train_loss)
+        train_accuracies.append(train_acc)
+
+        # ── Validation phase ──
+        model.eval()
+        total_val_loss, correct_val, total_val = 0, 0, 0
+        with torch.no_grad():
+            for batch in test_loader:
+                input_ids = batch["input_ids"].to(device)
+                attention_mask = batch["attention_mask"].to(device)
+                labels = batch["label"].to(device)
+                outputs = model(input_ids, attention_mask=attention_mask, labels=labels)
+                loss = loss_function(outputs.logits, labels)
+                total_val_loss += loss.item()
+                preds = torch.argmax(outputs.logits, dim=1)
+                correct_val += (preds == labels).sum().item()
+                total_val += labels.size(0)
+
+        avg_val_loss = total_val_loss / len(test_loader)
+        val_acc = correct_val / total_val
+        val_losses.append(avg_val_loss)
+        val_accuracies.append(val_acc)
+
+        print(f" Epoch {epoch+1} | Train Loss: {avg_train_loss:.4f}, Val Loss: {avg_val_loss:.4f} | Train Acc: {train_acc:.4f}, Val Acc: {val_acc:.4f}")
+
+    # ── Plot overfitting graphs ──
+    epochs = range(1, 5)
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
+
+    ax1.plot(epochs, train_losses, label='Training Loss', marker='o')
+    ax1.plot(epochs, val_losses, label='Validation Loss', marker='s')
+    ax1.set_title('BERT - Loss per Epoch')
+    ax1.set_xlabel('Epoch')
+    ax1.set_ylabel('Loss')
+    ax1.legend()
+    ax1.grid(True, linestyle='--', alpha=0.7)
+
+    ax2.plot(epochs, train_accuracies, label='Training Accuracy', marker='o')
+    ax2.plot(epochs, val_accuracies, label='Validation Accuracy', marker='s')
+    ax2.set_title('BERT - Accuracy per Epoch')
+    ax2.set_xlabel('Epoch')
+    ax2.set_ylabel('Accuracy')
+    ax2.legend()
+    ax2.grid(True, linestyle='--', alpha=0.7)
+
+    plt.tight_layout()
+    plt.savefig("overfitting_BERT.png")
+    plt.close()
+    print(" Overfitting graph saved for BERT!")
+
+    # ── Final metrics ──
     predictions, actuals = [], []
+    model.eval()
     with torch.no_grad():
         for batch in test_loader:
             input_ids = batch["input_ids"].to(device)
@@ -224,7 +344,7 @@ def train_evaluate_bert(train_reviews, train_labels, test_reviews, test_labels, 
     precision = precision_score(actual_sentiments, pred_sentiments, average='weighted', zero_division=0)
     recall = recall_score(actual_sentiments, pred_sentiments, average='weighted', zero_division=0)
     f1 = f1_score(actual_sentiments, pred_sentiments, average='weighted', zero_division=0)
-
+    plot_confusion_matrix(actual_sentiments, pred_sentiments, "BERT DistilBERT")
     return model, tokenizer, {"Accuracy": accuracy, "Precision": precision, "Recall": recall, "F1 Score": f1}
 
 # ══════════════════════════════════
@@ -317,6 +437,47 @@ def predict_sentiment_interactive(models):
             print(f"BERT Prediction         : {bert_pred.upper()}")
 
 # ══════════════════════════════════
+#   Tuning
+# ══════════════════════════════════
+def tune_svm(X_train, y_train):
+    print("=" * 50)
+    print("        HYPERPARAMETER TUNING - SVM (RBF)")
+    print("=" * 50)
+    
+    # 1. Create a smaller subset for tuning (much faster)
+    X_tune, y_tune = resample(X_train, y_train, 
+                              n_samples=2000, 
+                              random_state=42, 
+                              stratify=y_train)
+    
+    param_grid = {
+        'C': [0.1, 1, 10],
+        'gamma': ['scale', 'auto', 0.1, 0.01],
+        'kernel': ['rbf']
+    }
+    
+    grid_search = GridSearchCV(
+        SVC(class_weight='balanced', random_state=42),
+        param_grid,
+        cv=3,
+        scoring='f1_weighted',
+        n_jobs=-1,
+        verbose=1
+    )
+    
+    # 2. Fit only on the tuning subset
+    grid_search.fit(X_tune, y_tune)
+    print(f" Best Parameters found: {grid_search.best_params_}")
+    
+    # 3. Train the final model with BEST parameters on FULL data
+    print(" Training final SVM model on full dataset...")
+    best_model = SVC(**grid_search.best_params_, class_weight='balanced', random_state=42, tol=1e-2)
+    best_model.fit(X_train, y_train)
+    
+    return best_model
+
+
+# ══════════════════════════════════
 #   Main Execution Block
 # ══════════════════════════════════
 def main():
@@ -349,14 +510,14 @@ def main():
         train_data, test_data = train_test_split(hotel_data, test_size=0.2, random_state=42, stratify=hotel_data['Sentiment'])
 
         # TF-IDF
-        tfidf_vectorizer = TfidfVectorizer(max_features=5000)
+        tfidf_vectorizer = TfidfVectorizer(max_features=2500)
         X_train_tfidf = tfidf_vectorizer.fit_transform(train_data["Clean_Review_NBSVM"])
         X_test_tfidf = tfidf_vectorizer.transform(test_data["Clean_Review_NBSVM"])
 
         # Train and Evaluate Scikit-learn Models
         nb_model, nb_results = train_evaluate_model(MultinomialNB(), X_train_tfidf, train_data["Sentiment"], X_test_tfidf, test_data["Sentiment"], "Naïve Bayes")
-        svm_model, svm_results = train_evaluate_model(LinearSVC(random_state=42, max_iter=2000, class_weight='balanced'), X_train_tfidf, train_data["Sentiment"], X_test_tfidf, test_data["Sentiment"], "SVM")
-
+        best_svm_estimator = tune_svm(X_train_tfidf, train_data["Sentiment"])
+        svm_model, svm_results = train_evaluate_model(best_svm_estimator, X_train_tfidf, train_data["Sentiment"], X_test_tfidf, test_data["Sentiment"], "SVM (RBF)")
         # BERT Training
         class_counts = train_data['Sentiment_Number'].value_counts().sort_index()
         # Normalizing class weights for CrossEntropyLoss

@@ -36,13 +36,11 @@ def check_model_files(directory):
 # ══════════════════════════════════
 
 def preprocess_bert(text):
-    text = str(text).lower()
+    text = str(text)
     text = re.sub(r'<.*?>', '', text)
     text = re.sub(r'http\S+|www\S+|https\S+', '', text, flags=re.MULTILINE)
     text = contractions.fix(text)
     text = emoji.demojize(text, delimiters=(" ", " "))
-    text = text.replace("_", " ").replace(":", "")
-    text = " ".join(text.split())
     return text
 
 def process_and_translate(text):
@@ -75,23 +73,21 @@ def convert_sentiment_to_number(sentiment):
 # ══════════════════════════════════
 class HotelReviewDataset(Dataset):
     def __init__(self, reviews, labels, tokenizer, max_length=128):
-        self.reviews = [preprocess_bert(r) for r in reviews]
-        self.labels = labels
-        self.tokenizer = tokenizer
-        self.max_length = max_length
-
-    def __len__(self):
-        return len(self.reviews)
-
-    def __getitem__(self, index):
-        review = self.reviews[index]
-        encoded = self.tokenizer(
-            review,
-            max_length=self.max_length,
+        self.encodings = tokenizer(
+            [preprocess_bert(r) for r in reviews],
+            max_length=max_length,
             padding="max_length",
             truncation=True,
             return_tensors="pt"
         )
+        self.labels = torch.tensor(labels, dtype=torch.long)
+
+    def __getitem__(self, index):
+        return {
+            "input_ids": self.encodings["input_ids"][index],
+            "attention_mask": self.encodings["attention_mask"][index],
+            "label": self.labels[index]
+        }
         return {
             "input_ids": encoded["input_ids"].squeeze(),
             "attention_mask": encoded["attention_mask"].squeeze(),
@@ -247,8 +243,9 @@ def main():
         train_data, test_data = train_test_split(hotel_data, test_size=0.2, random_state=42, stratify=hotel_data['Sentiment'])
 
         class_counts = train_data['Sentiment_Number'].value_counts().sort_index()
-        class_weights_bert = 1 / class_counts 
-        class_weights_bert = torch.tensor(class_weights_bert.values, dtype=torch.float)
+        weights = 1.0 / class_counts 
+        weights = (weights / weights.sum()) * 3.0
+        class_weights_bert = torch.tensor(weights.values, dtype=torch.float)
 
         bert_model, bert_tokenizer, bert_results = train_evaluate_bert(
             train_data['Review'].tolist(), 
