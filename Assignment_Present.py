@@ -7,11 +7,14 @@ import numpy as np
 import os
 import contractions
 import emoji
+import copy
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 from transformers import DistilBertTokenizer, DistilBertForSequenceClassification
 from torch.utils.data import Dataset, DataLoader
 from torch.optim import AdamW
+from sklearn.utils.class_weight import compute_class_weight
+from transformers import get_linear_schedule_with_warmup
 
 # ══════════════════════════════════
 #   Constants & Paths
@@ -82,6 +85,9 @@ class HotelReviewDataset(Dataset):
         )
         self.labels = torch.tensor(labels, dtype=torch.long)
 
+    def __len__(self):
+        return len(self.labels)
+
     def __getitem__(self, index):
         return {
             "input_ids": self.encodings["input_ids"][index],
@@ -104,11 +110,20 @@ def train_evaluate_bert(train_reviews, train_labels, test_reviews, test_labels, 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
 
-    optimizer = AdamW(model.parameters(), lr=2e-5)
-    loss_function = torch.nn.CrossEntropyLoss(weight=class_weights.to(device))
+    optimizer = AdamW(model.parameters(), lr=2e-5, weight_decay=0.01)
+    total_steps = len(train_loader) * 4
+    scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=total_steps//10, num_training_steps=total_steps)
+    loss_function = torch.nn.CrossEntropyLoss(weight=class_weights.to(device), label_smoothing=0.1)
+
+    train_losses, val_losses = [], []
+    train_accuracies, val_accuracies = [], []
+    best_val_accuracy = 0
+    patience = 2
+    patience_counter = 0
+    best_model_state = None
 
     print(f"Training BERT on {len(train_reviews)} samples...")
-    for epoch in range(4):
+    for epoch in range(6):
         model.train()
         for batch in train_loader:
             optimizer.zero_grad()
@@ -118,11 +133,40 @@ def train_evaluate_bert(train_reviews, train_labels, test_reviews, test_labels, 
             outputs = model(input_ids, attention_mask=attention_mask)
             loss = loss_function(outputs.logits, labels)
             loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
-        print(f" Epoch {epoch+1} done.")
+            scheduler.step()
+
+        model.eval()
+        correct_val, total_val = 0, 0
+        with torch.no_grad():
+            for batch in test_loader:
+                input_ids = batch["input_ids"].to(device)
+                attention_mask = batch["attention_mask"].to(device)
+                labels = batch["label"].to(device)
+                outputs = model(input_ids, attention_mask=attention_mask)
+                preds = torch.argmax(outputs.logits, dim=1)
+                correct_val += (preds == labels).sum().item()
+                total_val += labels.size(0)
+
+        val_acc = correct_val / total_val
+        print(f" Epoch {epoch+1} done. Val Acc: {val_acc:.4f}")
+
+        if val_acc > best_val_accuracy:
+            best_val_accuracy = val_acc
+            best_model_state = copy.deepcopy(model.state_dict())
+            patience_counter = 0
+        else:
+            patience_counter += 1
+            if patience_counter >= patience:
+                print(f" Early stopping at epoch {epoch+1}!")
+                break
+
+    model.load_state_dict(best_model_state)
 
     model.eval()
     predictions, actuals = [], []
+
     with torch.no_grad():
         for batch in test_loader:
             input_ids = batch["input_ids"].to(device)
@@ -237,10 +281,13 @@ def main():
 
         train_data, test_data = train_test_split(hotel_data, test_size=0.2, random_state=42, stratify=hotel_data['Sentiment'])
 
-        class_counts = train_data['Sentiment_Number'].value_counts().sort_index()
-        weights = 1.0 / class_counts 
-        weights = (weights / weights.sum()) * 3.0
-        class_weights_bert = torch.tensor(weights.values, dtype=torch.float)
+        class_weights_array = compute_class_weight(
+            class_weight='balanced',
+            classes=np.array([0, 1, 2]),
+            y=train_data['Sentiment_Number'].tolist()
+        )
+        class_weights_bert = torch.tensor(class_weights_array, dtype=torch.float)
+
 
         bert_model, bert_tokenizer, bert_results = train_evaluate_bert(
             train_data['Review'].tolist(), 

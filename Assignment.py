@@ -28,6 +28,8 @@ from torch.optim import AdamW
 from sklearn.model_selection import learning_curve
 from sklearn.utils import resample
 from transformers import get_linear_schedule_with_warmup
+from sklearn.utils.class_weight import compute_class_weight
+
 
 
 
@@ -141,8 +143,6 @@ def preprocess_bert(text):
     text = re.sub(r'http\S+|www\S+|https\S+', '', text, flags=re.MULTILINE)
     text = contractions.fix(text)
     text = emoji.demojize(text, delimiters=(" ", " "))
-    text = text.replace("_", " ").replace(":", "")
-    text = " ".join(text.split())
     return text
 
 def process_and_translate(text):
@@ -211,7 +211,7 @@ def train_evaluate_model(model, X_train, y_train, X_test, y_test, model_name):
 
 # BERT Specific Components
 class HotelReviewDataset(Dataset):
-    def __init__(self, reviews, labels, tokenizer, max_length=256):
+    def __init__(self, reviews, labels, tokenizer, max_length=128):
         # 1. Tokenize the entire list of reviews at once
         self.encodings = tokenizer(
             [preprocess_bert(r) for r in reviews],
@@ -242,17 +242,17 @@ def train_evaluate_bert(train_reviews, train_labels, test_reviews, test_labels, 
     tokenizer = DistilBertTokenizer.from_pretrained("distilbert-base-uncased")
     train_dataset = HotelReviewDataset(train_reviews, train_labels, tokenizer)
     test_dataset = HotelReviewDataset(test_reviews, test_labels, tokenizer)
-    train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
-    test_loader = DataLoader(test_dataset, batch_size=32)
+    train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True)
+    test_loader = DataLoader(test_dataset, batch_size=16)
 
     model = DistilBertForSequenceClassification.from_pretrained("distilbert-base-uncased", num_labels=3)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
 
-    optimizer = AdamW(model.parameters(), lr=1e-5, weight_decay=0.01)
+    optimizer = AdamW(model.parameters(), lr=2e-5, weight_decay=0.01)
     total_steps = len(train_loader) * 4
     scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=total_steps//10, num_training_steps=total_steps)
-    loss_function = torch.nn.CrossEntropyLoss(weight=class_weights.to(device))
+    loss_function = torch.nn.CrossEntropyLoss(weight=class_weights.to(device), label_smoothing=0.1)
 
     # --- Tracking lists ---
     train_losses, val_losses = [], []
@@ -275,6 +275,7 @@ def train_evaluate_bert(train_reviews, train_labels, test_reviews, test_labels, 
             outputs = model(input_ids, attention_mask=attention_mask)
             loss = loss_function(outputs.logits, labels)
             loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
             scheduler.step()
             total_train_loss += loss.item()
@@ -545,10 +546,12 @@ def main():
         best_svm_estimator = tune_svm(X_train_tfidf, train_data["Sentiment"])
         svm_model, svm_results = train_evaluate_model(best_svm_estimator, X_train_tfidf, train_data["Sentiment"], X_test_tfidf, test_data["Sentiment"], "SVM (RBF)")
         # BERT Training
-        class_counts = train_data['Sentiment_Number'].value_counts().sort_index()
-        # Normalizing class weights for CrossEntropyLoss
-        class_weights_bert = 1.0 / class_counts
-        class_weights_bert = torch.tensor(class_weights_bert.values, dtype=torch.float)
+        class_weights_array = compute_class_weight(
+            class_weight='balanced',
+            classes=np.array([0, 1, 2]),
+            y=train_data['Sentiment_Number'].tolist()
+        )
+        class_weights_bert = torch.tensor(class_weights_array, dtype=torch.float)
 
         bert_model, bert_tokenizer, bert_results = train_evaluate_bert(
             train_data['Review'].tolist(), 
