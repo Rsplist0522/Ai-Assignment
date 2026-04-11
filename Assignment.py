@@ -477,15 +477,15 @@ def tune_svm(X_train, y_train):
                               stratify=y_train)
     
     param_grid = {
-        'C': [0.001, 0.01, 0.1],
-        'gamma': ['scale', 'auto', 0.1, 0.01],
+        'C': [0.1, 1, 10, 100],
+        'gamma': ['scale', 'auto', 0.1, 0.01, 0.001],
         'kernel': ['rbf']
     }
     
     grid_search = GridSearchCV(
         SVC(class_weight='balanced', random_state=42),
         param_grid,
-        cv=3,
+        cv=5,
         scoring='f1_weighted',
         n_jobs=-1,
         verbose=1
@@ -497,7 +497,7 @@ def tune_svm(X_train, y_train):
     
     # 3. Train the final model with BEST parameters on FULL data
     print(" Training final SVM model on full dataset...")
-    best_model = SVC(**grid_search.best_params_, class_weight='balanced', random_state=42, tol=1e-2)
+    best_model = SVC(**grid_search.best_params_, class_weight='balanced', random_state=42, tol=1e-3)
     best_model.fit(X_train, y_train)
     
     return best_model
