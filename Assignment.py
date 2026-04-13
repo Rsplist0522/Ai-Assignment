@@ -8,6 +8,7 @@ import numpy as np
 import matplotlib
 import seaborn as sns
 import os
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 import joblib 
 import contractions
 import emoji
@@ -79,21 +80,6 @@ def plot_confusion_matrix(y_true, y_pred, model_name):
     plt.savefig(f"confusion_matrix_{safe_name}.png")
     plt.close()
     print(f" Confusion matrix saved for {model_name}!")
-
-    # Heatmap (normalized %)
-    cm_norm = cm.astype('float') / cm.sum(axis=1, keepdims=True) * 100
-    plt.figure(figsize=(7, 5))
-    sns.heatmap(cm_norm, annot=True, fmt='.1f', cmap='YlOrRd',
-                xticklabels=labels, yticklabels=labels,
-                linewidths=0.5, linecolor='gray',
-                vmin=0, vmax=100)
-    plt.title(f'Confusion Matrix (%) - {model_name}', fontsize=14)
-    plt.ylabel('Actual', fontsize=12)
-    plt.xlabel('Predicted', fontsize=12)
-    plt.tight_layout()
-    plt.savefig(f"confusion_matrix_norm_{safe_name}.png")
-    plt.close()
-    print(f" Normalised heatmap saved for {model_name}!")
 
 # ══════════════════════════════════
 #   1. Load Dataset
@@ -242,28 +228,28 @@ def train_evaluate_bert(train_reviews, train_labels, test_reviews, test_labels, 
     tokenizer = DistilBertTokenizer.from_pretrained("distilbert-base-uncased")
     train_dataset = HotelReviewDataset(train_reviews, train_labels, tokenizer)
     test_dataset = HotelReviewDataset(test_reviews, test_labels, tokenizer)
-    train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True)
-    test_loader = DataLoader(test_dataset, batch_size=16)
+    train_loader = DataLoader(train_dataset, batch_size=4, shuffle=True)
+    test_loader = DataLoader(test_dataset, batch_size=4)
 
     model = DistilBertForSequenceClassification.from_pretrained("distilbert-base-uncased", num_labels=3)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
 
-    optimizer = AdamW(model.parameters(), lr=2e-5, weight_decay=0.01)
+    optimizer = AdamW(model.parameters(), lr=1e-5, weight_decay=0.1)
     total_steps = len(train_loader) * 4
     scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=total_steps//10, num_training_steps=total_steps)
-    loss_function = torch.nn.CrossEntropyLoss(weight=class_weights.to(device), label_smoothing=0.1)
+    loss_function = torch.nn.CrossEntropyLoss(weight=class_weights.to(device), label_smoothing=0.15)
 
     # --- Tracking lists ---
-    train_losses, val_losses = [], []
     train_accuracies, val_accuracies = [], []
     best_val_accuracy = 0
-    patience = 2
+    patience = 1
     patience_counter = 0
     best_model_state = None
 
     print(f"Training BERT on {len(train_reviews)} samples...")
     for epoch in range(6):
+        torch.cuda.empty_cache()
         # ── Training phase ──
         model.train()
         total_train_loss, correct_train, total_train = 0, 0, 0
@@ -285,8 +271,9 @@ def train_evaluate_bert(train_reviews, train_labels, test_reviews, test_labels, 
 
         avg_train_loss = total_train_loss / len(train_loader)
         train_acc = correct_train / total_train
-        train_losses.append(avg_train_loss)
         train_accuracies.append(train_acc)
+
+        model.train()
 
         # ── Validation phase ──
         model.eval()
@@ -305,10 +292,10 @@ def train_evaluate_bert(train_reviews, train_labels, test_reviews, test_labels, 
 
         avg_val_loss = total_val_loss / len(test_loader)
         val_acc = correct_val / total_val
-        val_losses.append(avg_val_loss)
         val_accuracies.append(val_acc)
 
-        print(f" Epoch {epoch+1} | Train Loss: {avg_train_loss:.4f}, Val Loss: {avg_val_loss:.4f} | Train Acc: {train_acc:.4f}, Val Acc: {val_acc:.4f}")
+        print(f" Epoch {epoch+1} | Train Acc: {train_acc:.4f}, Val Acc: {val_acc:.4f}")
+
 
         if val_acc > best_val_accuracy:
             best_val_accuracy = val_acc
@@ -326,29 +313,20 @@ def train_evaluate_bert(train_reviews, train_labels, test_reviews, test_labels, 
 
 
     # ── Plot overfitting graphs ──
-    epochs = range(1, len(train_losses) + 1)
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
-
-    ax1.plot(epochs, train_losses, label='Training Loss', marker='o')
-    ax1.plot(epochs, val_losses, label='Validation Loss', marker='s')
-    ax1.set_title('BERT - Loss per Epoch')
-    ax1.set_xlabel('Epoch')
-    ax1.set_ylabel('Loss')
-    ax1.legend()
-    ax1.grid(True, linestyle='--', alpha=0.7)
-
-    ax2.plot(epochs, train_accuracies, label='Training Accuracy', marker='o')
-    ax2.plot(epochs, val_accuracies, label='Validation Accuracy', marker='s')
-    ax2.set_title('BERT - Accuracy per Epoch')
-    ax2.set_xlabel('Epoch')
-    ax2.set_ylabel('Accuracy')
-    ax2.legend()
-    ax2.grid(True, linestyle='--', alpha=0.7)
-
+    epochs = range(1, len(train_accuracies) + 1)
+    fig, ax = plt.subplots(figsize=(8, 5))
+    ax.plot(epochs, train_accuracies, label='Training Accuracy', marker='o')
+    ax.plot(epochs, val_accuracies, label='Validation Accuracy', marker='s')
+    ax.set_title('BERT - Accuracy per Epoch')
+    ax.set_xlabel('Epoch')
+    ax.set_ylabel('Accuracy')
+    ax.legend()
+    ax.grid(True, linestyle='--', alpha=0.7)
     plt.tight_layout()
     plt.savefig("overfitting_BERT.png")
     plt.close()
     print(" Overfitting graph saved for BERT!")
+
 
     # ── Final metrics ──
     predictions, actuals = [], []
@@ -404,6 +382,20 @@ def compare_and_visualize(results):
     plt.savefig("model_comparison.png")
     print(" Chart saved as model_comparison.png!")
 
+def plot_correlation_matrix(preds_nb, preds_svm, preds_bert, actual):
+    df = pd.DataFrame({'Actual': actual, 'NB': preds_nb, 'SVM': preds_svm, 'BERT': preds_bert})
+    # Map sentiments to numbers (0, 1, 2) if they are strings
+    mapping = {"negative": 0, "neutral": 1, "positive": 2}
+    for col in df.columns:
+        if df[col].dtype == object: df[col] = df[col].map(mapping)
+    plt.figure(figsize=(8, 6))
+    sns.heatmap(df.corr(), annot=True, cmap='coolwarm', fmt='.2f')
+    plt.title('Model Correlation Matrix')
+    plt.tight_layout()
+    plt.savefig('model_correlation_matrix.png')
+    plt.close()
+    print(" Correlation matrix saved as model_correlation_matrix.png!")
+
 # ══════════════════════════════════
 #   6. User Input Function
 # ══════════════════════════════════
@@ -450,7 +442,7 @@ def predict_sentiment_interactive(models):
             device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
             models['bert_model'].eval()
             encoded = models["bert_tokenizer"](
-                bert_ready_review, max_length=128, padding="max_length", truncation=True, return_tensors="pt"
+                bert_ready_review, max_length=256, padding="max_length", truncation=True, return_tensors="pt"
             )
             input_ids = encoded["input_ids"].to(device)
             attention_mask = encoded["attention_mask"].to(device)
@@ -545,6 +537,7 @@ def main():
         nb_model, nb_results = train_evaluate_model(MultinomialNB(), X_train_tfidf, train_data["Sentiment"], X_test_tfidf, test_data["Sentiment"], "Naïve Bayes")
         best_svm_estimator = tune_svm(X_train_tfidf, train_data["Sentiment"])
         svm_model, svm_results = train_evaluate_model(best_svm_estimator, X_train_tfidf, train_data["Sentiment"], X_test_tfidf, test_data["Sentiment"], "SVM (RBF)")
+
         # BERT Training
         class_weights_array = compute_class_weight(
             class_weight='balanced',
@@ -561,7 +554,39 @@ def main():
             class_weights_bert
         )
 
+        # ── Collect predictions for correlation matrix ──        
+        preds_nb  = nb_model.predict(X_test_tfidf).tolist()      
+        preds_svm = svm_model.predict(X_test_tfidf).tolist()     
+
+        bert_model.eval()                                         
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  
+        test_dataset_corr = HotelReviewDataset(                   
+            test_data['Review'].tolist(),                         
+            test_data['Sentiment_Number'].tolist(),               
+            bert_tokenizer                                        
+        )                                                         
+        test_loader_corr = DataLoader(test_dataset_corr, batch_size=4)  
+        preds_bert_num = []                                       
+        with torch.no_grad():                                     
+            for batch in test_loader_corr:                        
+                outputs = bert_model(                             
+                    batch["input_ids"].to(device),                
+                    attention_mask=batch["attention_mask"].to(device)  
+                )                                                 
+                preds_bert_num.extend(                            
+                    torch.argmax(outputs.logits, dim=1).cpu().numpy()  
+                )                                                 
+        sentiment_map = {0: "negative", 1: "neutral", 2: "positive"}  
+        preds_bert  = [sentiment_map[p] for p in preds_bert_num]  
+        actual_corr = test_data["Sentiment"].tolist()             
+        plot_correlation_matrix(preds_nb, preds_svm, preds_bert, actual_corr)  
+
+        # Final Comparison
+        all_results = {"Naïve Bayes": nb_results, "SVM": svm_results, "BERT": bert_results}
+        compare_and_visualize(all_results)
+
         # Save everything
+        os.makedirs(MODELS_DIR, exist_ok=True)
         print("\n Saving models for future use...")
         joblib.dump(nb_model, NB_MODEL_PATH)
         joblib.dump(svm_model, SVM_MODEL_PATH)
@@ -569,10 +594,6 @@ def main():
         bert_model.save_pretrained(BERT_MODEL_DIR)
         bert_tokenizer.save_pretrained(BERT_MODEL_DIR)
         print(" Models saved in \'saved_models/\' folder.")
-
-        # Final Comparison
-        all_results = {"Naïve Bayes": nb_results, "SVM": svm_results, "BERT": bert_results}
-        compare_and_visualize(all_results)
 
     # Interactive Prediction
     trained_models = {

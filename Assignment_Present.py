@@ -75,7 +75,7 @@ def convert_sentiment_to_number(sentiment):
 #   BERT Specific Components
 # ══════════════════════════════════
 class HotelReviewDataset(Dataset):
-    def __init__(self, reviews, labels, tokenizer, max_length=128):
+    def __init__(self, reviews, labels, tokenizer, max_length=256):
         self.encodings = tokenizer(
             [preprocess_bert(r) for r in reviews],
             max_length=max_length,
@@ -115,8 +115,6 @@ def train_evaluate_bert(train_reviews, train_labels, test_reviews, test_labels, 
     scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=total_steps//10, num_training_steps=total_steps)
     loss_function = torch.nn.CrossEntropyLoss(weight=class_weights.to(device), label_smoothing=0.1)
 
-    train_losses, val_losses = [], []
-    train_accuracies, val_accuracies = [], []
     best_val_accuracy = 0
     patience = 2
     patience_counter = 0
@@ -235,7 +233,7 @@ def predict_sentiment_interactive(models):
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         models['bert_model'].eval()
         encoded = models["bert_tokenizer"](
-            bert_ready_review, max_length=128, padding="max_length", truncation=True, return_tensors="pt"
+            bert_ready_review, max_length=256, padding="max_length", truncation=True, return_tensors="pt"
         )
         input_ids = encoded["input_ids"].to(device)
         attention_mask = encoded["attention_mask"].to(device)

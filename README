@@ -1,1 +1,6 @@
 pip install pandas numpy matplotlib seaborn scikit-learn nltk transformers torch jupyter notebook wordcloud langdetect deep-translator contractions emoji joblib
+import torch
+print(torch.cuda.is_available())
+print(torch.cuda.get_device_name(0))
+pip uninstall torch torchvision torchaudio -y
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
