@@ -197,7 +197,7 @@ def train_evaluate_model(model, X_train, y_train, X_test, y_test, model_name):
 
 # BERT Specific Components
 class HotelReviewDataset(Dataset):
-    def __init__(self, reviews, labels, tokenizer, max_length=128):
+    def __init__(self, reviews, labels, tokenizer, max_length=256):
         # 1. Tokenize the entire list of reviews at once
         self.encodings = tokenizer(
             [preprocess_bert(r) for r in reviews],
@@ -231,24 +231,34 @@ def train_evaluate_bert(train_reviews, train_labels, test_reviews, test_labels, 
     train_loader = DataLoader(train_dataset, batch_size=4, shuffle=True)
     test_loader = DataLoader(test_dataset, batch_size=4)
 
-    model = DistilBertForSequenceClassification.from_pretrained("distilbert-base-uncased", num_labels=3)
+    model = DistilBertForSequenceClassification.from_pretrained(
+        "distilbert-base-uncased",
+        num_labels=3,
+        dropout=0.3,
+        seq_classif_dropout=0.3
+        )
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
 
-    optimizer = AdamW(model.parameters(), lr=1e-5, weight_decay=0.1)
+    for name, param in model.named_parameters():
+        if "transformer.layer.5" not in name and "transformer.layer.4" not in name and "classifier" not in name:
+            param.requires_grad = False
+
+
+    optimizer = AdamW(model.parameters(), lr=2e-5, weight_decay=0.01)
     total_steps = len(train_loader) * 4
-    scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=total_steps//10, num_training_steps=total_steps)
-    loss_function = torch.nn.CrossEntropyLoss(weight=class_weights.to(device), label_smoothing=0.15)
+    scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=total_steps//5, num_training_steps=total_steps)
+    loss_function = torch.nn.CrossEntropyLoss(weight=class_weights.to(device))
 
     # --- Tracking lists ---
     train_accuracies, val_accuracies = [], []
     best_val_accuracy = 0
-    patience = 1
+    patience = 3
     patience_counter = 0
     best_model_state = None
 
     print(f"Training BERT on {len(train_reviews)} samples...")
-    for epoch in range(6):
+    for epoch in range(20):
         torch.cuda.empty_cache()
         # ── Training phase ──
         model.train()
@@ -272,8 +282,6 @@ def train_evaluate_bert(train_reviews, train_labels, test_reviews, test_labels, 
         avg_train_loss = total_train_loss / len(train_loader)
         train_acc = correct_train / total_train
         train_accuracies.append(train_acc)
-
-        model.train()
 
         # ── Validation phase ──
         model.eval()
@@ -527,12 +535,26 @@ def main():
         hotel_data["Sentiment_Number"] = hotel_data["Sentiment"].apply(convert_sentiment_to_number)
 
         train_data, test_data = train_test_split(hotel_data, test_size=0.2, random_state=42, stratify=hotel_data['Sentiment'])
+        # ── Balance classes for BERT ──
+        positive = train_data[train_data['Sentiment'] == 'positive']
+        negative = train_data[train_data['Sentiment'] == 'negative']
+        neutral  = train_data[train_data['Sentiment'] == 'neutral']
+
+        min_size = min(len(positive), len(negative), len(neutral))
+
+        train_data_bert = pd.concat([
+            positive.sample(min_size, random_state=42),
+            negative.sample(min_size, random_state=42),
+            neutral.sample(min_size, random_state=42)
+        ]).sample(frac=1, random_state=42).reset_index(drop=True)
+
+
 
         # TF-IDF
         tfidf_vectorizer = TfidfVectorizer(max_features=10000, ngram_range=(1, 3), sublinear_tf=True, min_df=2)
         X_train_tfidf = tfidf_vectorizer.fit_transform(train_data["Clean_Review_NBSVM"])
         X_test_tfidf = tfidf_vectorizer.transform(test_data["Clean_Review_NBSVM"])
-
+ 
         # Train and Evaluate Scikit-learn Models
         nb_model, nb_results = train_evaluate_model(MultinomialNB(), X_train_tfidf, train_data["Sentiment"], X_test_tfidf, test_data["Sentiment"], "Naïve Bayes")
         best_svm_estimator = tune_svm(X_train_tfidf, train_data["Sentiment"])
@@ -547,8 +569,8 @@ def main():
         class_weights_bert = torch.tensor(class_weights_array, dtype=torch.float)
 
         bert_model, bert_tokenizer, bert_results = train_evaluate_bert(
-            train_data['Review'].tolist(), 
-            train_data['Sentiment_Number'].tolist(), 
+            train_data_bert['Review'].tolist(), 
+            train_data_bert['Sentiment_Number'].tolist(), 
             test_data['Review'].tolist(), 
             test_data['Sentiment_Number'].tolist(), 
             class_weights_bert
