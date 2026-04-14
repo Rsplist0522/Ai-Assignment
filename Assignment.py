@@ -81,6 +81,18 @@ def plot_confusion_matrix(y_true, y_pred, model_name):
     plt.close()
     print(f" Confusion matrix saved for {model_name}!")
 
+
+class FocalLoss(torch.nn.Module):
+    def __init__(self, weight=None, gamma=2.0):
+        super().__init__()
+        self.weight = weight
+        self.gamma = gamma
+
+    def forward(self, logits, targets):
+        ce_loss = torch.nn.functional.cross_entropy(logits, targets, weight=self.weight, reduction='none')
+        pt = torch.exp(-ce_loss)
+        return ((1 - pt) ** self.gamma * ce_loss).mean()
+
 # ══════════════════════════════════
 #   1. Load Dataset
 # ══════════════════════════════════
@@ -228,8 +240,8 @@ def train_evaluate_bert(train_reviews, train_labels, test_reviews, test_labels, 
     tokenizer = DistilBertTokenizer.from_pretrained("distilbert-base-uncased")
     train_dataset = HotelReviewDataset(train_reviews, train_labels, tokenizer)
     test_dataset = HotelReviewDataset(test_reviews, test_labels, tokenizer)
-    train_loader = DataLoader(train_dataset, batch_size=8, shuffle=True, num_workers=2, pin_memory=True)
-    test_loader = DataLoader(test_dataset, batch_size=8, num_workers=2, pin_memory=True) #num_workers=2, pin_memory=True delete if GPU error
+    train_loader = DataLoader(train_dataset, batch_size=4, shuffle=True, pin_memory=True)
+    test_loader = DataLoader(test_dataset, batch_size=4, pin_memory=True) #num_workers=2, pin_memory=True delete if GPU error
 
     model = DistilBertForSequenceClassification.from_pretrained(
         "distilbert-base-uncased",
@@ -246,9 +258,9 @@ def train_evaluate_bert(train_reviews, train_labels, test_reviews, test_labels, 
 
 
     optimizer = AdamW(model.parameters(), lr=2e-5, weight_decay=0.01)
-    total_steps = len(train_loader) * 4
+    total_steps = len(train_loader) * 6
     scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=total_steps//5, num_training_steps=total_steps)
-    loss_function = torch.nn.CrossEntropyLoss(weight=class_weights.to(device))
+    loss_function = FocalLoss(weight=class_weights.to(device), gamma=2.0)
 
     # --- Tracking lists ---
     train_accuracies, val_accuracies = [], []
@@ -258,7 +270,7 @@ def train_evaluate_bert(train_reviews, train_labels, test_reviews, test_labels, 
     best_model_state = None
 
     print(f"Training BERT on {len(train_reviews)} samples...")
-    for epoch in range(20):
+    for epoch in range(6):
         torch.cuda.empty_cache()
         # ── Training phase ──
         model.train()
@@ -291,7 +303,7 @@ def train_evaluate_bert(train_reviews, train_labels, test_reviews, test_labels, 
                 input_ids = batch["input_ids"].to(device)
                 attention_mask = batch["attention_mask"].to(device)
                 labels = batch["label"].to(device)
-                outputs = model(input_ids, attention_mask=attention_mask, labels=labels)
+                outputs = model(input_ids, attention_mask=attention_mask)
                 loss = loss_function(outputs.logits, labels)
                 total_val_loss += loss.item()
                 preds = torch.argmax(outputs.logits, dim=1)
@@ -540,15 +552,14 @@ def main():
         negative = train_data[train_data['Sentiment'] == 'negative']
         neutral  = train_data[train_data['Sentiment'] == 'neutral']
 
-        max_size = max(len(positive), len(negative), len(neutral))
+        minority_size = max(len(negative), len(neutral))
+        target_positive = min(len(positive), minority_size * 3)
 
         train_data_bert = pd.concat([
-            resample(positive, n_samples=max_size, random_state=42, replace=True),
-            resample(negative, n_samples=max_size, random_state=42, replace=True),
-            resample(neutral,  n_samples=max_size, random_state=42, replace=True)
+            positive.sample(n=target_positive, random_state=42),
+            negative,
+            neutral
         ]).sample(frac=1, random_state=42).reset_index(drop=True)
-
-
 
         # TF-IDF
         tfidf_vectorizer = TfidfVectorizer(max_features=10000, ngram_range=(1, 3), sublinear_tf=True, min_df=2)
@@ -560,11 +571,12 @@ def main():
         best_svm_estimator = tune_svm(X_train_tfidf, train_data["Sentiment"])
         svm_model, svm_results = train_evaluate_model(best_svm_estimator, X_train_tfidf, train_data["Sentiment"], X_test_tfidf, test_data["Sentiment"], "SVM (RBF)")
 
+        
         # BERT Training
         class_weights_array = compute_class_weight(
             class_weight='balanced',
             classes=np.array([0, 1, 2]),
-            y=train_data['Sentiment_Number'].tolist()
+            y=train_data_bert['Sentiment_Number'].tolist()
         )
         class_weights_bert = torch.tensor(class_weights_array, dtype=torch.float)
 
@@ -587,7 +599,7 @@ def main():
             test_data['Sentiment_Number'].tolist(),               
             bert_tokenizer                                        
         )                                                         
-        test_loader_corr = DataLoader(test_dataset_corr, batch_size=8)  
+        test_loader_corr = DataLoader(test_dataset_corr, batch_size=4)  
         preds_bert_num = []                                       
         with torch.no_grad():                                     
             for batch in test_loader_corr:                        
