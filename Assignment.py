@@ -197,7 +197,7 @@ def train_evaluate_model(model, X_train, y_train, X_test, y_test, model_name):
 
 # BERT Specific Components
 class HotelReviewDataset(Dataset):
-    def __init__(self, reviews, labels, tokenizer, max_length=256):
+    def __init__(self, reviews, labels, tokenizer, max_length=128):
         # 1. Tokenize the entire list of reviews at once
         self.encodings = tokenizer(
             [preprocess_bert(r) for r in reviews],
@@ -228,8 +228,8 @@ def train_evaluate_bert(train_reviews, train_labels, test_reviews, test_labels, 
     tokenizer = DistilBertTokenizer.from_pretrained("distilbert-base-uncased")
     train_dataset = HotelReviewDataset(train_reviews, train_labels, tokenizer)
     test_dataset = HotelReviewDataset(test_reviews, test_labels, tokenizer)
-    train_loader = DataLoader(train_dataset, batch_size=4, shuffle=True)
-    test_loader = DataLoader(test_dataset, batch_size=4)
+    train_loader = DataLoader(train_dataset, batch_size=8, shuffle=True, num_workers=2, pin_memory=True)
+    test_loader = DataLoader(test_dataset, batch_size=8, num_workers=2, pin_memory=True) #num_workers=2, pin_memory=True delete if GPU error
 
     model = DistilBertForSequenceClassification.from_pretrained(
         "distilbert-base-uncased",
@@ -450,7 +450,7 @@ def predict_sentiment_interactive(models):
             device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
             models['bert_model'].eval()
             encoded = models["bert_tokenizer"](
-                bert_ready_review, max_length=256, padding="max_length", truncation=True, return_tensors="pt"
+                bert_ready_review, max_length=128, padding="max_length", truncation=True, return_tensors="pt"
             )
             input_ids = encoded["input_ids"].to(device)
             attention_mask = encoded["attention_mask"].to(device)
@@ -540,12 +540,12 @@ def main():
         negative = train_data[train_data['Sentiment'] == 'negative']
         neutral  = train_data[train_data['Sentiment'] == 'neutral']
 
-        min_size = min(len(positive), len(negative), len(neutral))
+        max_size = max(len(positive), len(negative), len(neutral))
 
         train_data_bert = pd.concat([
-            positive.sample(min_size, random_state=42),
-            negative.sample(min_size, random_state=42),
-            neutral.sample(min_size, random_state=42)
+            resample(positive, n_samples=max_size, random_state=42, replace=True),
+            resample(negative, n_samples=max_size, random_state=42, replace=True),
+            resample(neutral,  n_samples=max_size, random_state=42, replace=True)
         ]).sample(frac=1, random_state=42).reset_index(drop=True)
 
 
@@ -587,7 +587,7 @@ def main():
             test_data['Sentiment_Number'].tolist(),               
             bert_tokenizer                                        
         )                                                         
-        test_loader_corr = DataLoader(test_dataset_corr, batch_size=4)  
+        test_loader_corr = DataLoader(test_dataset_corr, batch_size=8)  
         preds_bert_num = []                                       
         with torch.no_grad():                                     
             for batch in test_loader_corr:                        
