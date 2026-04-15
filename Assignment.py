@@ -195,9 +195,24 @@ def train_evaluate_model(model, X_train, y_train, X_test, y_test, model_name):
     plt.legend()
     plt.grid(True, linestyle='--', alpha=0.7)
     plt.tight_layout()
-    plt.savefig(f"overfitting_{model_name.replace(' ', '_').replace('(', '').replace(')', '')}.png")
+    safe_name = model_name.replace(' ', '_').replace('(', '').replace(')', '')
+    plt.savefig(f"overfitting_{safe_name}.png")
     plt.close()
     print(f" Overfitting graph saved for {model_name}!")
+
+    # Performance curve for additional visualization
+    plt.figure(figsize=(8, 5))
+    plt.plot(train_sizes, 1 - train_mean, label='Training Error', marker='o', color='red')
+    plt.plot(train_sizes, 1 - val_mean, label='Validation Error', marker='s', color='orange')
+    plt.title(f'Performance Curve (Error Rate) - {model_name}')
+    plt.xlabel('Training Size')
+    plt.ylabel('Error Rate')
+    plt.legend()
+    plt.grid(True, linestyle='--', alpha=0.7)
+    plt.tight_layout()
+    plt.savefig(f"performance_{safe_name}.png")
+    plt.close()
+    print(f" Performance graph saved for {model_name}!")
 
     predictions = model.predict(X_test)
     accuracy = accuracy_score(y_test, predictions)
@@ -253,24 +268,25 @@ def train_evaluate_bert(train_reviews, train_labels, test_reviews, test_labels, 
     model.to(device)
 
     for name, param in model.named_parameters():
-        if "transformer.layer.5" not in name and "transformer.layer.4" not in name and "classifier" not in name:
+        if "transformer.layer.5" not in name and "transformer.layer.4" not in name and "transformer.layer.3" not in name and "classifier" not in name:
             param.requires_grad = False
 
 
     optimizer = AdamW(model.parameters(), lr=2e-5, weight_decay=0.01)
     total_steps = len(train_loader) * 6
-    scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=total_steps//5, num_training_steps=total_steps)
+    scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=total_steps//3, num_training_steps=total_steps)
     loss_function = FocalLoss(weight=class_weights.to(device), gamma=2.0)
 
     # --- Tracking lists ---
     train_accuracies, val_accuracies = [], []
-    best_val_accuracy = 0
-    patience = 3
+    train_losses, val_losses = [], []
+    best_val_loss = float('inf')
+    patience = 5
     patience_counter = 0
     best_model_state = None
 
     print(f"Training BERT on {len(train_reviews)} samples...")
-    for epoch in range(6):
+    for epoch in range(15):
         torch.cuda.empty_cache()
         # ── Training phase ──
         model.train()
@@ -294,6 +310,7 @@ def train_evaluate_bert(train_reviews, train_labels, test_reviews, test_labels, 
         avg_train_loss = total_train_loss / len(train_loader)
         train_acc = correct_train / total_train
         train_accuracies.append(train_acc)
+        train_losses.append(avg_train_loss)
 
         # ── Validation phase ──
         model.eval()
@@ -313,12 +330,13 @@ def train_evaluate_bert(train_reviews, train_labels, test_reviews, test_labels, 
         avg_val_loss = total_val_loss / len(test_loader)
         val_acc = correct_val / total_val
         val_accuracies.append(val_acc)
+        val_losses.append(avg_val_loss)
 
         print(f" Epoch {epoch+1} | Train Acc: {train_acc:.4f}, Val Acc: {val_acc:.4f}")
 
 
-        if val_acc > best_val_accuracy:
-            best_val_accuracy = val_acc
+        if avg_val_loss < best_val_loss:
+            best_val_loss = avg_val_loss
             best_model_state = copy.deepcopy(model.state_dict())
             patience_counter = 0
             print(f" New best model saved at epoch {epoch+1}!")
@@ -346,6 +364,20 @@ def train_evaluate_bert(train_reviews, train_labels, test_reviews, test_labels, 
     plt.savefig("overfitting_BERT.png")
     plt.close()
     print(" Overfitting graph saved for BERT!")
+
+    # ── Plot loss graph ──
+    plt.figure(figsize=(8, 5))
+    plt.plot(epochs, train_losses, label='Training Loss', marker='o')
+    plt.plot(epochs, val_losses, label='Validation Loss', marker='s')
+    plt.title('BERT - Loss per Epoch')
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.legend()
+    plt.grid(True, linestyle='--', alpha=0.7)
+    plt.tight_layout()
+    plt.savefig("loss_BERT.png")
+    plt.close()
+    print(" Loss graph saved for BERT!")
 
 
     # ── Final metrics ──
@@ -553,7 +585,7 @@ def main():
         neutral  = train_data[train_data['Sentiment'] == 'neutral']
 
         minority_size = max(len(negative), len(neutral))
-        target_positive = min(len(positive), minority_size * 3)
+        target_positive = min(len(positive), minority_size * 2)
 
         train_data_bert = pd.concat([
             positive.sample(n=target_positive, random_state=42),
