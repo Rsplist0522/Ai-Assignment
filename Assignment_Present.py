@@ -157,22 +157,23 @@ def train_evaluate_bert(train_reviews, train_labels, test_reviews, test_labels, 
 
     # Freeze all layers except the last 2 transformer layers and classifier
     for name, param in model.named_parameters():
-        if "transformer.layer.5" not in name and "transformer.layer.4" not in name and "classifier" not in name:
+        if "transformer.layer.5" not in name and "transformer.layer.4" not in name and "transformer.layer.3" not in name and "classifier" not in name:
             param.requires_grad = False
 
     optimizer = AdamW(model.parameters(), lr=2e-5, weight_decay=0.01)
     total_steps = len(train_loader) * 6
-    scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=total_steps // 5, num_training_steps=total_steps)
+    scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=total_steps // 3, num_training_steps=total_steps)
     loss_function = FocalLoss(weight=class_weights.to(device), gamma=2.0)
 
     train_accuracies, val_accuracies = [], []
-    best_val_accuracy = 0
-    patience = 3
+    train_losses, val_losses = [], []
+    best_val_loss = float('inf')
+    patience = 5
     patience_counter = 0
     best_model_state = None
 
     print(f"Training BERT on {len(train_reviews)} samples...")
-    for epoch in range(6):
+    for epoch in range(15):
         torch.cuda.empty_cache()
 
         # ── Training phase ──
@@ -194,8 +195,10 @@ def train_evaluate_bert(train_reviews, train_labels, test_reviews, test_labels, 
             correct_train += (preds == labels).sum().item()
             total_train += labels.size(0)
 
+        avg_train_loss = total_train_loss / len(train_loader)
         train_acc = correct_train / total_train
         train_accuracies.append(train_acc)
+        train_losses.append(avg_train_loss)
 
         # ── Validation phase ──
         model.eval()
@@ -212,13 +215,15 @@ def train_evaluate_bert(train_reviews, train_labels, test_reviews, test_labels, 
                 correct_val += (preds == labels).sum().item()
                 total_val += labels.size(0)
 
+        avg_val_loss = total_val_loss / len(test_loader)
         val_acc = correct_val / total_val
         val_accuracies.append(val_acc)
+        val_losses.append(avg_val_loss)
 
         print(f" Epoch {epoch+1} | Train Acc: {train_acc:.4f}, Val Acc: {val_acc:.4f}")
 
-        if val_acc > best_val_accuracy:
-            best_val_accuracy = val_acc
+        if avg_val_loss < best_val_loss:
+            best_val_loss = avg_val_loss
             best_model_state = copy.deepcopy(model.state_dict())
             patience_counter = 0
             print(f" New best model saved at epoch {epoch+1}!")
@@ -228,7 +233,6 @@ def train_evaluate_bert(train_reviews, train_labels, test_reviews, test_labels, 
             if patience_counter >= patience:
                 print(f" Early stopping triggered at epoch {epoch+1}!")
                 break
-
     model.load_state_dict(best_model_state)
 
     # ── Overfitting plot ──

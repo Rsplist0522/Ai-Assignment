@@ -19,248 +19,628 @@ nltk.download("wordnet", quiet=True)
 nltk.download("punkt", quiet=True)
 nltk.download("punkt_tab", quiet=True)
 
-# ── Page setup ──
-st.set_page_config(page_title="Sentiment Analyzer", page_icon="🏨")
+# ─── Page config ───────────────────────────────────────────────────────────────
+st.set_page_config(
+    page_title="SentiScope · Hotel Review Analyzer",
+    page_icon="🔍",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
 
-# ── Galaxy Theme ──
+# ─── Global CSS ────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Rajdhani:wght@300;400;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700;800&display=swap');
 
-html, body, [data-testid="stAppViewContainer"] {
-    background: radial-gradient(ellipse at 20% 50%, #0d0221 0%, #060714 40%, #000005 100%) !important;
-    color: #e2d9f3 !important;
-    font-family: 'Rajdhani', sans-serif !important;
+/* ── Hide Streamlit chrome ── */
+#MainMenu, header[data-testid="stHeader"], footer,
+[data-testid="stToolbar"], [data-testid="stDecoration"] {
+    display: none !important;
 }
 
-[data-testid="stAppViewContainer"]::before {
-    content: '';
-    position: fixed;
-    inset: 0;
-    background-image:
-        radial-gradient(1px 1px at 10% 20%, rgba(255,255,255,0.8) 0%, transparent 100%),
-        radial-gradient(1px 1px at 30% 60%, rgba(200,180,255,0.6) 0%, transparent 100%),
-        radial-gradient(1.5px 1.5px at 55% 15%, rgba(255,255,255,0.9) 0%, transparent 100%),
-        radial-gradient(1px 1px at 75% 80%, rgba(180,160,255,0.7) 0%, transparent 100%),
-        radial-gradient(1px 1px at 90% 40%, rgba(255,255,255,0.5) 0%, transparent 100%),
-        radial-gradient(1px 1px at 45% 90%, rgba(200,200,255,0.6) 0%, transparent 100%),
-        radial-gradient(1px 1px at 65% 50%, rgba(255,255,255,0.4) 0%, transparent 100%),
-        radial-gradient(1px 1px at 85% 10%, rgba(220,200,255,0.8) 0%, transparent 100%),
-        radial-gradient(1.5px 1.5px at 20% 75%, rgba(255,255,255,0.7) 0%, transparent 100%),
-        radial-gradient(1px 1px at 5% 45%, rgba(200,180,255,0.5) 0%, transparent 100%);
-    pointer-events: none;
-    z-index: 0;
+/* ── FORCE sidebar always open — hide the collapse button ── */
+[data-testid="stSidebarCollapseButton"],
+button[kind="header"] {
+    display: none !important;
 }
 
+/* ── Base ── */
+html, body,
+[data-testid="stAppViewContainer"],
+[data-testid="stAppViewContainer"] > section,
+[data-testid="stMain"] {
+    background: #080b12 !important;
+    color: #e2e8f0 !important;
+    font-family: 'Sora', sans-serif !important;
+}
+
+/* ── Sidebar ── */
 [data-testid="stSidebar"] {
-    background: rgba(13, 2, 33, 0.85) !important;
-    border-right: 1px solid rgba(150, 100, 255, 0.3) !important;
-    backdrop-filter: blur(12px);
+    background: #0d1117 !important;
+    border-right: 1px solid #1e2738 !important;
+    min-width: 260px !important;
+    max-width: 260px !important;
+}
+[data-testid="stSidebar"] > div:first-child {
+    padding: 36px 24px 32px !important;
 }
 
+/* ── Main block container ── */
+[data-testid="stAppViewBlockContainer"] {
+    max-width: 860px !important;
+    padding: 52px 60px !important;
+}
+
+/* ── Typography ── */
 h1 {
-    font-family: 'Orbitron', monospace !important;
-    font-size: 1.8rem !important;
-    background: linear-gradient(135deg, #c77dff, #7b2fff, #e0aaff) !important;
-    -webkit-background-clip: text !important;
-    -webkit-text-fill-color: transparent !important;
-    letter-spacing: 2px;
+    font-family: 'Sora', sans-serif !important;
+    font-size: 3rem !important;
+    font-weight: 800 !important;
+    color: #ffffff !important;
+    -webkit-text-fill-color: #ffffff !important;
+    letter-spacing: -1px !important;
+    line-height: 1.1 !important;
+    margin-bottom: 10px !important;
 }
 
 h2, h3 {
-    font-family: 'Orbitron', monospace !important;
-    color: #c77dff !important;
-    letter-spacing: 1px;
+    font-family: 'Sora', sans-serif !important;
+    font-size: 0.6rem !important;
+    font-weight: 700 !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.2em !important;
+    color: #4c6ef5 !important;
+    margin-top: 40px !important;
+    margin-bottom: 14px !important;
 }
 
-p, label, div { font-family: 'Rajdhani', sans-serif !important; color: #ccc0e8 !important; }
+p, div {
+    font-family: 'Sora', sans-serif !important;
+}
 
-textarea {
-    background: rgba(30, 10, 60, 0.8) !important;
-    border: 1px solid rgba(150, 80, 255, 0.4) !important;
-    border-radius: 10px !important;
-    color: #e2d9f3 !important;
-    font-family: 'Rajdhani', sans-serif !important;
+[data-testid="stMarkdownContainer"] p {
     font-size: 1rem !important;
-    transition: border-color 0.3s ease;
+    color: #7a8ba8 !important;
+    line-height: 1.7 !important;
+}
+
+/* ── Textarea ── */
+textarea {
+    background: #111827 !important;
+    border: 1.5px solid #1e2d45 !important;
+    border-radius: 14px !important;
+    color: #e2e8f0 !important;
+    font-family: 'Sora', sans-serif !important;
+    font-size: 1rem !important;
+    font-weight: 300 !important;
+    line-height: 1.75 !important;
+    padding: 18px 20px !important;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease !important;
 }
 textarea:focus {
-    border-color: rgba(199, 125, 255, 0.8) !important;
-    box-shadow: 0 0 15px rgba(150, 80, 255, 0.3) !important;
+    border-color: #4c6ef5 !important;
+    box-shadow: 0 0 0 4px rgba(76, 110, 245, 0.12) !important;
+    outline: none !important;
+}
+textarea::placeholder { color: #2e3f58 !important; }
+
+[data-testid="stTextArea"] label {
+    font-family: 'Sora', sans-serif !important;
+    font-size: 0.6rem !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.2em !important;
+    text-transform: uppercase !important;
+    color: #4c6ef5 !important;
+    margin-bottom: 10px !important;
 }
 
+/* ── Button ── */
 [data-testid="stButton"] button {
-    background: linear-gradient(135deg, #7b2fff, #c77dff) !important;
-    color: white !important;
-    font-family: 'Orbitron', monospace !important;
-    font-size: 0.85rem !important;
-    letter-spacing: 1.5px !important;
+    background: #4c6ef5 !important;
+    color: #ffffff !important;
+    font-family: 'Sora', sans-serif !important;
+    font-weight: 700 !important;
+    font-size: 0.9rem !important;
+    letter-spacing: 0.06em !important;
     border: none !important;
-    border-radius: 8px !important;
-    padding: 0.6rem 2rem !important;
-    transition: all 0.3s ease !important;
-    box-shadow: 0 4px 20px rgba(123, 47, 255, 0.4) !important;
+    border-radius: 12px !important;
+    padding: 0.75rem 2.5rem !important;
+    transition: all 0.18s ease !important;
+    width: 100% !important;
 }
 [data-testid="stButton"] button:hover {
+    background: #3b5bdb !important;
     transform: translateY(-2px) !important;
-    box-shadow: 0 6px 28px rgba(199, 125, 255, 0.6) !important;
+    box-shadow: 0 8px 28px rgba(76, 110, 245, 0.4) !important;
+}
+[data-testid="stButton"] button:active {
+    transform: scale(0.98) !important;
 }
 
+/* ── Metric cards ── */
+[data-testid="stMetric"] {
+    background: #111827 !important;
+    border: 1.5px solid #1e2d45 !important;
+    border-radius: 16px !important;
+    padding: 26px 22px !important;
+    transition: border-color 0.2s, transform 0.2s !important;
+}
+[data-testid="stMetric"]:hover {
+    border-color: #4c6ef5 !important;
+    transform: translateY(-2px) !important;
+}
+[data-testid="stMetricLabel"] {
+    font-family: 'Sora', sans-serif !important;
+    font-size: 0.6rem !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.2em !important;
+    text-transform: uppercase !important;
+    color: #4c6ef5 !important;
+}
+[data-testid="stMetricValue"] {
+    font-family: 'Sora', sans-serif !important;
+    font-weight: 700 !important;
+    font-size: 1.15rem !important;
+    color: #ffffff !important;
+    margin-top: 8px !important;
+}
+
+/* ── Alerts ── */
 [data-testid="stSuccess"] {
-    background: rgba(30, 80, 50, 0.4) !important;
-    border: 1px solid rgba(80, 220, 130, 0.4) !important;
-    border-radius: 10px !important;
-    font-family: 'Orbitron', monospace !important;
-    letter-spacing: 1px;
+    background: #071a10 !important;
+    border: 1.5px solid #14532d !important;
+    border-radius: 14px !important;
+    padding: 20px 22px !important;
+}
+[data-testid="stSuccess"] p,
+[data-testid="stSuccess"] div {
+    color: #4ade80 !important;
+    font-size: 1.05rem !important;
+    font-weight: 500 !important;
 }
 [data-testid="stInfo"] {
-    background: rgba(20, 20, 80, 0.5) !important;
-    border: 1px solid rgba(100, 120, 255, 0.4) !important;
-    border-radius: 10px !important;
+    background: #070f1f !important;
+    border: 1.5px solid #1e3a6e !important;
+    border-radius: 14px !important;
+    padding: 16px 20px !important;
 }
+[data-testid="stInfo"] p,
+[data-testid="stInfo"] div { color: #93c5fd !important; font-size: 0.92rem !important; }
 [data-testid="stWarning"] {
-    background: rgba(80, 50, 10, 0.5) !important;
-    border: 1px solid rgba(255, 180, 50, 0.4) !important;
-    border-radius: 10px !important;
+    background: #130f00 !important;
+    border: 1.5px solid #422006 !important;
+    border-radius: 14px !important;
+    padding: 16px 20px !important;
 }
+[data-testid="stWarning"] p,
+[data-testid="stWarning"] div { color: #fbbf24 !important; }
 [data-testid="stError"] {
-    background: rgba(80, 10, 20, 0.5) !important;
-    border: 1px solid rgba(255, 80, 100, 0.4) !important;
-    border-radius: 10px !important;
+    background: #130000 !important;
+    border: 1.5px solid #450a0a !important;
+    border-radius: 14px !important;
+    padding: 16px 20px !important;
+}
+[data-testid="stError"] p,
+[data-testid="stError"] div { color: #f87171 !important; }
+
+/* ── Radio ── */
+[data-testid="stRadio"] > label {
+    font-size: 0.6rem !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.2em !important;
+    text-transform: uppercase !important;
+    color: #4c6ef5 !important;
+    margin-bottom: 14px !important;
+}
+[data-testid="stRadio"] label span {
+    font-size: 0.9rem !important;
+    color: #c0cfe0 !important;
+    font-weight: 400 !important;
 }
 
-[data-testid="stMetric"] {
-    background: rgba(25, 8, 55, 0.7) !important;
-    border: 1px solid rgba(150, 80, 255, 0.35) !important;
-    border-radius: 12px !important;
-    padding: 1rem !important;
-    backdrop-filter: blur(8px);
-    transition: border-color 0.3s ease;
+/* ── Divider ── */
+hr {
+    border: none !important;
+    border-top: 1px solid #161f30 !important;
+    margin: 36px 0 !important;
 }
-[data-testid="stMetric"]:hover { border-color: rgba(199, 125, 255, 0.6) !important; }
-[data-testid="stMetricLabel"] { color: #a08cc8 !important; font-family: 'Rajdhani', sans-serif !important; }
-[data-testid="stMetricValue"] { color: #e0aaff !important; font-family: 'Orbitron', monospace !important; font-size: 1rem !important; }
 
-[data-testid="stRadio"] label { color: #ccc0e8 !important; }
+/* ── Spinner ── */
+[data-testid="stSpinner"] { color: #4c6ef5 !important; }
 
-::-webkit-scrollbar { width: 6px; }
-::-webkit-scrollbar-track { background: #060714; }
-::-webkit-scrollbar-thumb { background: rgba(123, 47, 255, 0.5); border-radius: 3px; }
+/* ── Columns gap ── */
+[data-testid="stHorizontalBlock"] { gap: 16px !important; }
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #1e2d45; border-radius: 4px; }
+
+/* ════════════ CUSTOM COMPONENTS ════════════ */
+
+.sidebar-logo {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 40px;
+}
+.sidebar-icon {
+    width: 40px;
+    height: 40px;
+    background: #4c6ef5;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    flex-shrink: 0;
+}
+.sidebar-title {
+    font-family: 'Sora', sans-serif;
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: #ffffff;
+    letter-spacing: -0.3px;
+}
+.sidebar-subtitle {
+    font-family: 'Sora', sans-serif;
+    font-size: 0.7rem;
+    color: #4c6ef5;
+    font-weight: 500;
+}
+.info-block {
+    background: #111827;
+    border: 1px solid #1e2d45;
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 12px;
+}
+.info-label {
+    font-family: 'Sora', sans-serif;
+    font-size: 0.55rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.2em;
+    color: #4c6ef5;
+    margin-bottom: 10px;
+}
+.info-item {
+    font-family: 'Sora', sans-serif;
+    font-size: 0.8rem;
+    color: #8899b4;
+    line-height: 2;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.info-dot {
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: #2d3f5e;
+    flex-shrink: 0;
+}
+.hero-sub {
+    font-family: 'Sora', sans-serif;
+    font-size: 1.05rem;
+    color: #5a7090;
+    font-weight: 300;
+    margin-bottom: 28px;
+    line-height: 1.6;
+}
+.ready-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: #071a10;
+    border: 1.5px solid #14532d;
+    color: #4ade80;
+    font-family: 'Sora', sans-serif;
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding: 7px 16px;
+    border-radius: 100px;
+}
+.pulse-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #4ade80;
+    animation: pulse 2s infinite;
+}
+@keyframes pulse {
+    0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(74,222,128,0.4); }
+    50% { opacity: 0.7; box-shadow: 0 0 0 4px rgba(74,222,128,0); }
+}
+.stat-strip {
+    display: flex;
+    gap: 2px;
+    margin-bottom: 36px;
+}
+.stat-item {
+    flex: 1;
+    background: #111827;
+    border: 1px solid #1e2d45;
+    padding: 16px 18px;
+    border-radius: 4px;
+    text-align: center;
+}
+.stat-item:first-child { border-radius: 12px 4px 4px 12px; }
+.stat-item:last-child  { border-radius: 4px 12px 12px 4px; }
+.stat-val {
+    font-family: 'Sora', sans-serif;
+    font-size: 1.4rem;
+    font-weight: 800;
+    color: #ffffff;
+    display: block;
+}
+.stat-lbl {
+    font-family: 'Sora', sans-serif;
+    font-size: 0.62rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    color: #3d5070;
+    display: block;
+    margin-top: 3px;
+}
+.verdict {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 18px 22px;
+    border-radius: 14px;
+    font-family: 'Sora', sans-serif;
+    font-size: 0.95rem;
+    font-weight: 500;
+    margin-top: 10px;
+}
+.verdict-icon { font-size: 1.3rem; flex-shrink: 0; }
+.verdict.agree    { background: #071a10; border: 1.5px solid #14532d; color: #4ade80; }
+.verdict.majority { background: #130f00; border: 1.5px solid #422006; color: #fbbf24; }
+.verdict.split    { background: #130000; border: 1.5px solid #450a0a; color: #f87171; }
 </style>
 """, unsafe_allow_html=True)
 
-# ── Constants ──
+# ─── Constants ─────────────────────────────────────────────────────────────────
 MODELS_DIR     = "saved_models"
 BERT_MODEL_DIR = os.path.join(MODELS_DIR, "bert_model")
 NB_MODEL_PATH  = os.path.join(MODELS_DIR, "nb_model.joblib")
 SVM_MODEL_PATH = os.path.join(MODELS_DIR, "svm_model.joblib")
 TFIDF_PATH     = os.path.join(MODELS_DIR, "tfidf_vectorizer.joblib")
 
-SENTIMENT_MAP  = {0: "😞 NEGATIVE", 1: "😐 NEUTRAL", 2: "😊 POSITIVE"}
-STR_TO_NUM     = {"negative": 0, "neutral": 1, "positive": 2}
+LABEL_MAP  = {0: "Negative", 1: "Neutral", 2: "Positive"}
+EMOJI_MAP  = {"Negative": "😞", "Neutral": "😐", "Positive": "😊"}
+STR_TO_NUM = {"negative": 0, "neutral": 1, "positive": 2}
 
 lemmatizer = WordNetLemmatizer()
 stop_words  = set(stopwords.words("english"))
 
-# ── Preprocessing ──
-def preprocess_text(text):
-    text   = re.sub(r'\d+', '', text.lower())
-    text   = re.sub(r'[^a-z\s]', '', text).strip()
+# ─── Preprocessing ─────────────────────────────────────────────────────────────
+def preprocess_text(text: str) -> str:
+    text   = re.sub(r"\d+", "", text.lower())
+    text   = re.sub(r"[^a-z\s]", "", text).strip()
     tokens = word_tokenize(text)
     tokens = [lemmatizer.lemmatize(w) for w in tokens if w not in stop_words]
     return " ".join(tokens)
 
-def preprocess_bert(text):
-    text = re.sub(r'<.*?>|http\S+', '', str(text).lower())
+def preprocess_bert(text: str) -> str:
+    text = re.sub(r"<.*?>|http\S+", "", str(text).lower())
     text = contractions.fix(text)
     text = emoji.demojize(text, delimiters=(" ", " ")).replace("_", " ").replace(":", "")
     return " ".join(text.split())
 
-# ── Translation ──
-def translate_if_needed(text):
+# ─── Translation ───────────────────────────────────────────────────────────────
+def translate_if_needed(text: str):
     DetectorFactory.seed = 0
     try:
         lang = detect(text)
         if lang != "en":
-            return GoogleTranslator(source="auto", target="en").translate(text), lang
+            translated = GoogleTranslator(source="auto", target="en").translate(text)
+            return translated, lang
     except Exception:
         pass
     return text, None
 
-# ── Model loaders ──
-@st.cache_resource
+# ─── Model loaders ─────────────────────────────────────────────────────────────
+@st.cache_resource(show_spinner=False)
 def load_bert():
     model     = DistilBertForSequenceClassification.from_pretrained(BERT_MODEL_DIR)
     tokenizer = DistilBertTokenizer.from_pretrained(BERT_MODEL_DIR)
     model.eval()
     return model, tokenizer
 
-@st.cache_resource
+@st.cache_resource(show_spinner=False)
 def load_nb_svm():
-    return joblib.load(NB_MODEL_PATH), joblib.load(SVM_MODEL_PATH), joblib.load(TFIDF_PATH)
+    nb    = joblib.load(NB_MODEL_PATH)
+    svm   = joblib.load(SVM_MODEL_PATH)
+    tfidf = joblib.load(TFIDF_PATH)
+    return nb, svm, tfidf
 
-# ── Predictions ──
-def predict_bert(text, model, tokenizer):
-    enc = tokenizer(preprocess_bert(text), max_length=128, padding="max_length",
-                    truncation=True, return_tensors="pt")
+# ─── Prediction helpers ────────────────────────────────────────────────────────
+def predict_bert(text: str, model, tokenizer) -> str:
+    enc = tokenizer(
+        preprocess_bert(text),
+        max_length=128,
+        padding="max_length",
+        truncation=True,
+        return_tensors="pt",
+    )
     with torch.no_grad():
-        return SENTIMENT_MAP[torch.argmax(model(**enc).logits, dim=1).item()]
+        idx = torch.argmax(model(**enc).logits, dim=1).item()
+    return LABEL_MAP[idx]
 
-def predict_nb_svm(text, nb, svm, tfidf):
-    vec = tfidf.transform([preprocess_text(text)])
-    return (SENTIMENT_MAP[STR_TO_NUM[nb.predict(vec)[0]]],
-            SENTIMENT_MAP[STR_TO_NUM[svm.predict(vec)[0]]])
+def predict_nb_svm(text: str, nb, svm, tfidf):
+    vec     = tfidf.transform([preprocess_text(text)])
+    nb_raw  = nb.predict(vec)[0]
+    svm_raw = svm.predict(vec)[0]
+    return LABEL_MAP[STR_TO_NUM[nb_raw]], LABEL_MAP[STR_TO_NUM[svm_raw]]
 
-# ── Guard: BERT must exist ──
+# ─── Guard ─────────────────────────────────────────────────────────────────────
 if not os.path.exists(BERT_MODEL_DIR):
-    st.error("No trained BERT model found. Please train the model first.")
+    st.error("BERT model not found. Please train the model first (`saved_models/bert_model/`).")
     st.stop()
 
-# ── Title ──
-st.title("🏨 Hotel Review Sentiment Analyzer")
-st.write("Enter a hotel review below and click **Analyze** to see the sentiment.")
+bert_model, bert_tokenizer = load_bert()
 
-# ── Mode selector ──
-mode = st.sidebar.radio("Analysis Mode", ["🤖 BERT Only", "📊 Compare All Models"])
+# ══════════════════════════════════════════════════════
+#  SIDEBAR
+# ══════════════════════════════════════════════════════
+with st.sidebar:
+    st.markdown(
+        "<div class='sidebar-logo'>"
+        "  <div class='sidebar-icon'>🔍</div>"
+        "  <div>"
+        "    <div class='sidebar-title'>SentiScope</div>"
+        "    <div class='sidebar-subtitle'>Hotel Review AI</div>"
+        "  </div>"
+        "</div>",
+        unsafe_allow_html=True,
+    )
 
-if mode == "📊 Compare All Models":
-    if not all(os.path.exists(p) for p in [NB_MODEL_PATH, SVM_MODEL_PATH, TFIDF_PATH]):
-        st.error("NB / SVM models not found. Please train them first.")
+    st.markdown("<div class='info-label'>Analysis Mode</div>", unsafe_allow_html=True)
+    mode = st.radio(
+        "Analysis Mode",
+        ["BERT Only", "Compare All Models"],
+        label_visibility="collapsed",
+    )
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    st.markdown(
+        "<div class='info-block'>"
+        "  <div class='info-label'>Models</div>"
+        "  <div class='info-item'><span class='info-dot'></span>DistilBERT — Transformer</div>"
+        "  <div class='info-item'><span class='info-dot'></span>Naïve Bayes — TF-IDF</div>"
+        "  <div class='info-item'><span class='info-dot'></span>SVM — RBF Kernel</div>"
+        "</div>"
+        "<div class='info-block'>"
+        "  <div class='info-label'>Dataset</div>"
+        "  <div class='info-item'><span class='info-dot'></span>TripAdvisor Hotel Reviews</div>"
+        "</div>"
+        "<div class='info-block'>"
+        "  <div class='info-label'>Languages</div>"
+        "  <div class='info-item'><span class='info-dot'></span>Auto-detect &amp; Translate</div>"
+        "  <div class='info-item'><span class='info-dot'></span>Powered by Google Translate</div>"
+        "</div>",
+        unsafe_allow_html=True,
+    )
+
+# ─── Load NB/SVM if needed ─────────────────────────────────────────────────────
+nb_model = svm_model = tfidf = None
+if mode == "Compare All Models":
+    missing = [p for p in [NB_MODEL_PATH, SVM_MODEL_PATH, TFIDF_PATH] if not os.path.exists(p)]
+    if missing:
+        st.error(f"Missing model files: {', '.join(missing)}")
         st.stop()
     nb_model, svm_model, tfidf = load_nb_svm()
 
-bert_model, bert_tokenizer = load_bert()
-st.success("✦ Model loaded successfully")
+# ══════════════════════════════════════════════════════
+#  MAIN — HEADER
+# ══════════════════════════════════════════════════════
+st.markdown("# SentiScope")
+st.markdown(
+    "<p class='hero-sub'>Hotel review sentiment analysis · BERT · Naïve Bayes · SVM</p>",
+    unsafe_allow_html=True,
+)
+st.markdown(
+    "<div style='margin-bottom:36px;'>"
+    "<span class='ready-badge'><span class='pulse-dot'></span>All Systems Ready</span>"
+    "</div>",
+    unsafe_allow_html=True,
+)
 
-# ── Input ──
-review = st.text_area("Your Review:", placeholder="e.g. The room was clean and staff were friendly.")
+st.markdown(
+    "<div class='stat-strip'>"
+    "  <div class='stat-item'><span class='stat-val'>3</span><span class='stat-lbl'>Models Active</span></div>"
+    "  <div class='stat-item'><span class='stat-val'>100+</span><span class='stat-lbl'>Languages</span></div>"
+    "  <div class='stat-item'><span class='stat-val'>3</span><span class='stat-lbl'>Sentiment Classes</span></div>"
+    "  <div class='stat-item'><span class='stat-val'>128</span><span class='stat-lbl'>Token Window</span></div>"
+    "</div>",
+    unsafe_allow_html=True,
+)
 
-if st.button("Analyze"):
+st.markdown("---")
+
+# ══════════════════════════════════════════════════════
+#  MAIN — INPUT
+# ══════════════════════════════════════════════════════
+review = st.text_area(
+    "Review Text",
+    placeholder="Paste any hotel review here — multilingual support included...",
+    height=160,
+)
+
+col_btn, _, _ = st.columns([1, 1, 2])
+with col_btn:
+    run = st.button("Analyze →")
+
+# ══════════════════════════════════════════════════════
+#  MAIN — ANALYSIS
+# ══════════════════════════════════════════════════════
+if run:
     if not review.strip():
-        st.warning("Please enter a review first.")
+        st.warning("Please enter a review before analyzing.")
+        st.stop()
+
+    with st.spinner("Analyzing…"):
+        translated, detected_lang = translate_if_needed(review)
+
+    if detected_lang:
+        st.markdown("---")
+        st.markdown("### Translation")
+        c1, c2 = st.columns(2)
+        with c1:
+            st.info(f"**Detected Language:** `{detected_lang.upper()}`")
+        with c2:
+            st.info(f"**Translated Text:** {translated}")
+
+    st.markdown("---")
+
+    if mode == "BERT Only":
+        label = predict_bert(translated, bert_model, bert_tokenizer)
+        icon  = EMOJI_MAP[label]
+        st.markdown("### Result")
+        st.success(f"{icon}  **{label}** — sentiment detected by BERT.")
+
     else:
-        translated, lang = translate_if_needed(review)
-        if lang:
-            st.info(f"**Translated:** {translated}")
+        nb_label, svm_label = predict_nb_svm(translated, nb_model, svm_model, tfidf)
+        bert_label          = predict_bert(translated, bert_model, bert_tokenizer)
 
-        if mode == "🤖 BERT Only":
-            st.subheader("Result:")
-            st.success(predict_bert(translated, bert_model, bert_tokenizer))
+        st.markdown("### Model Predictions")
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Naïve Bayes", f"{EMOJI_MAP[nb_label]}  {nb_label}")
+        c2.metric("SVM",         f"{EMOJI_MAP[svm_label]}  {svm_label}")
+        c3.metric("BERT",        f"{EMOJI_MAP[bert_label]}  {bert_label}")
 
+        st.markdown("")
+        labels  = [nb_label, svm_label, bert_label]
+        counter = Counter(labels)
+
+        if len(set(labels)) == 1:
+            st.markdown(
+                "<div class='verdict agree'>"
+                "<span class='verdict-icon'>✓</span>"
+                "<span>All three models agree — strong consensus.</span>"
+                "</div>",
+                unsafe_allow_html=True,
+            )
+        elif len(set(labels)) == 2:
+            majority = counter.most_common(1)[0][0]
+            st.markdown(
+                f"<div class='verdict majority'>"
+                f"<span class='verdict-icon'>⊘</span>"
+                f"<span>Majority verdict: <strong>{majority}</strong> — one model differs.</span>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
         else:
-            nb_res, svm_res = predict_nb_svm(translated, nb_model, svm_model, tfidf)
-            bert_res        = predict_bert(translated, bert_model, bert_tokenizer)
-
-            st.subheader("Results:")
-            col1, col2, col3 = st.columns(3)
-            col1.metric("Naïve Bayes", nb_res)
-            col2.metric("SVM", svm_res)
-            col3.metric("BERT", bert_res)
-
-            labels = [nb_res, svm_res, bert_res]
-            if len(set(labels)) == 1:
-                st.success("✅ All three models agree!")
-            elif len(set(labels)) == 2:
-                st.info(f"🤝 Majority sentiment: **{Counter(labels).most_common(1)[0][0]}**")
-            else:
-                st.warning("⚠️ All three models disagree — the review may be ambiguous.")
+            st.markdown(
+                "<div class='verdict split'>"
+                "<span class='verdict-icon'>⚠</span>"
+                "<span>All three models disagree — review may be ambiguous.</span>"
+                "</div>",
+                unsafe_allow_html=True,
+            )
