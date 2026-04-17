@@ -180,8 +180,8 @@ def train_evaluate_model(model, X_train, y_train, X_test, y_test, model_name):
 
     # Learning curve for overfitting visualization
     train_sizes, train_scores, val_scores = learning_curve(
-        model, X_train, y_train, cv=5, scoring='accuracy',
-        train_sizes=np.linspace(0.1, 1.0, 10), n_jobs=-1
+        model, X_train, y_train, cv=3, scoring='accuracy',
+        train_sizes=np.linspace(0.2, 1.0, 5), n_jobs=2
     )
     train_mean = train_scores.mean(axis=1)
     val_mean = val_scores.mean(axis=1)
@@ -436,10 +436,12 @@ def compare_and_visualize(results):
 
 def plot_correlation_matrix(preds_nb, preds_svm, preds_bert, actual):
     df = pd.DataFrame({'Actual': actual, 'NB': preds_nb, 'SVM': preds_svm, 'BERT': preds_bert})
-    # Map sentiments to numbers (0, 1, 2) if they are strings
     mapping = {"negative": 0, "neutral": 1, "positive": 2}
     for col in df.columns:
-        if df[col].dtype == object: df[col] = df[col].map(mapping)
+        df[col] = df[col].map(mapping) if df[col].dtype == object else df[col]
+        df[col] = pd.to_numeric(df[col], errors='coerce')
+    df = df.dropna()
+    df = df.astype(float)
     plt.figure(figsize=(8, 6))
     sns.heatmap(df.corr(), annot=True, cmap='coolwarm', fmt='.2f')
     plt.title('Model Correlation Matrix')
@@ -530,9 +532,9 @@ def tune_svm(X_train, y_train):
     grid_search = GridSearchCV(
         SVC(class_weight='balanced', random_state=42),
         param_grid,
-        cv=5,
+        cv=3,
         scoring='f1_weighted',
-        n_jobs=-1,
+        n_jobs=2,
         verbose=1
     )
     
