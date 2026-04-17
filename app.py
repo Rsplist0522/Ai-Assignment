@@ -21,7 +21,7 @@ nltk.download("punkt_tab", quiet=True)
 
 # ─── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="SentiScope · Hotel Review Analyzer",
+    page_title="Celestial · Hotel Review Analyzer",
     page_icon="🔍",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -493,7 +493,7 @@ with st.sidebar:
         "<div class='sidebar-logo'>"
         "  <div class='sidebar-icon'>🔍</div>"
         "  <div>"
-        "    <div class='sidebar-title'>SentiScope</div>"
+        "    <div class='sidebar-title'>Celestial</div>"
         "    <div class='sidebar-subtitle'>Hotel Review AI</div>"
         "  </div>"
         "</div>",
@@ -540,7 +540,7 @@ if mode == "Compare All Models":
 # ══════════════════════════════════════════════════════
 #  MAIN — HEADER
 # ══════════════════════════════════════════════════════
-st.markdown("# SentiScope")
+st.markdown("# Celestial")
 st.markdown(
     "<p class='hero-sub'>Hotel review sentiment analysis · BERT · Naïve Bayes · SVM</p>",
     unsafe_allow_html=True,
